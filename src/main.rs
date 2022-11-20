@@ -64,15 +64,11 @@ fn read_toc<R: Read + Seek>(mut r: R) -> io::Result<Toc> {
 fn dump_content(mut file: File, toc: Toc) -> io::Result<()> {
     for entry in toc.entries {
         file.seek(SeekFrom::Start(entry.offset as _))?;
-        let mut content = file.by_ref().take(entry.size as _);
+        let content = file.by_ref().take(entry.size as _);
         let path = Path::new("dump").join(entry.name);
         fs::create_dir_all(path.parent().unwrap())?;
-        if entry.file_type == FileType::Sound {
-            let decompressed = decompress_lz4(content)?;
-            fs::write(path, decompressed)?;
-        } else {
-            io::copy(&mut content, &mut File::create(path)?)?;
-        }
+        let decompressed = decompress_lz4(content)?;
+        fs::write(path, decompressed)?;
     }
     Ok(())
 }
