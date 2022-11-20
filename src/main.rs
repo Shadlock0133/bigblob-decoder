@@ -64,62 +64,26 @@ fn read_toc<R: Read + Seek>(mut r: R) -> io::Result<Toc> {
 fn dump_content(mut file: File, toc: Toc) -> io::Result<()> {
     for entry in toc.entries {
         file.seek(SeekFrom::Start(entry.offset as _))?;
-        let content = file.by_ref().take(entry.size as _);
-        let path = Path::new("dump").join(entry.name);
+        let mut content = file.by_ref().take(entry.size as _);
+        let path = Path::new("dump").join(&entry.name);
         fs::create_dir_all(path.parent().unwrap())?;
-        let decompressed = decompress_lz4(content)?;
+        let content = {
+            let mut buf = vec![];
+            content.read_to_end(&mut buf)?;
+            buf
+        };
+        let decompressed =
+            lz4_flex::decompress(&content, entry.size_decompressed as _)
+                .unwrap();
+        if entry.file_type == FileType::Image {
+            let suffix = &decompressed[decompressed.len() - 8..];
+            if suffix != 0xf0ff_ffff_ffff_ffffu64.to_be_bytes() {
+                eprintln!("different suffix in {}: {:x?}", entry.name, suffix);
+            }
+        }
         fs::write(path, decompressed)?;
     }
     Ok(())
-}
-
-fn decompress_lz4<R: Read>(mut r: R) -> io::Result<Vec<u8>> {
-    let mut res = vec![];
-    loop {
-        let token = r.read_u8()?;
-        // read literals length
-        let mut len = (token >> 4) as u64;
-        if len == 15 {
-            loop {
-                let next_len_byte = r.read_u8()?;
-                len += next_len_byte as u64;
-                if next_len_byte != u8::MAX {
-                    break;
-                }
-            }
-        }
-        // copy literals
-        io::copy(&mut (&mut r).take(len), &mut res)?;
-        // match copy
-        // read back offset
-        let offset = match r.read_u16::<LE>() {
-            Ok(o) => o as usize,
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => break,
-            Err(e) => return Err(e),
-        };
-        if offset == 0 {
-            return Err(io::ErrorKind::InvalidData.into());
-        }
-        // read matchlength
-        let mut matchlen = (token & 0xf) as usize + 4;
-        if matchlen == 19 {
-            loop {
-                let next_matchlen_byte = r.read_u8()?;
-                matchlen += next_matchlen_byte as usize;
-                if next_matchlen_byte != u8::MAX {
-                    break;
-                }
-            }
-        }
-        // perform match copy
-        let pos = res.len();
-        let new_len = pos + matchlen;
-        res.resize(new_len, 0);
-        let start = pos - offset;
-        let end = start + matchlen;
-        res.copy_within(start..end, pos);
-    }
-    Ok(res)
 }
 
 fn main() {
