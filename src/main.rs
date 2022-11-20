@@ -1,7 +1,7 @@
 use std::{
     fs::{self, File},
     io::{self, Read, Seek, SeekFrom},
-    path::Path,
+    path::Path, env,
 };
 
 use byteorder::{ReadBytesExt, LE};
@@ -61,7 +61,9 @@ enum FileType {
 }
 
 fn main() {
-    let mut file = File::open("assets.bigblob").unwrap();
+    let arg1 = env::args().nth(1);
+    let filename = arg1.as_deref().unwrap_or("assets.bigblob");
+    let mut file = File::open(filename).unwrap();
     let toc = read_toc(&mut file).unwrap();
     // for typ in [FileType::Sound, FileType::Image] {
     //     let maps = [(); 8].map(|()| BTreeMap::<u32, usize>::new());
