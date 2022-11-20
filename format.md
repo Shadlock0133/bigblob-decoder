@@ -5,7 +5,7 @@
 | toc_offset | 4 | entry_count | number of file entries |
 ||| first file entry ||
 | toc_offset +  4 |  4 | file_type | 0 - image, 1 - sound |
-| toc_offset +  8 |  4 | unk0 | maybe decompressed size |
+| toc_offset +  8 |  4 | size_decompressed | decompressed size |
 | toc_offset + 12 |  4 | size | size of compressed data in bigblob |
 | toc_offset + 16 | 32 | unks | unknown, sound files always have 0s, for images maybe xy coords for something? |
 | toc_offset + 48 |  4 | offset | offset in bigblob |
