@@ -1,7 +1,7 @@
 | offset | size | name | description |
 |-|-|-|-|
 | 0 | 4 | toc_offset | file offset to table of content (toc) |
-| 4 | toc_offset - 4 | data | raw compressed(?, maybe lz4) file data |
+| 4 | toc_offset - 4 | data | lz4 compressed file data |
 | toc_offset | 4 | entry_count | number of file entries |
 ||| first file entry ||
 | toc_offset +  4 |  4 | file_type | 0 - image, 1 - sound |
