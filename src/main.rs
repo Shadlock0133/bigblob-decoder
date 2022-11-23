@@ -105,8 +105,8 @@ fn main() {
     let mut file = File::open(filename).unwrap();
     let toc = read_toc(&mut file).unwrap();
     for entry in &toc.entries {
-        println!(
-            "{} ({:?}) ({} bytes @ {:#x}; {} decompressed):",
+        print!(
+            "{} ({:?}) ({} bytes @ {:#x}; {} decompressed)",
             entry.name,
             entry.file_type,
             entry.size,
@@ -114,12 +114,13 @@ fn main() {
             entry.size_decompressed
         );
         if entry.file_type == FileType::Image {
+            println!(":");
             println!("dimensions: {}x{}", entry.width, entry.height);
             for unk in entry.unks {
-                print!("({:#x}, {:#x}), ", unk.0, unk.1);
+                print!("({}, {}), ", unk.0, unk.1);
             }
-            println!();
         }
+        println!();
     }
     dump_content(file, toc).unwrap();
 }

@@ -7,16 +7,22 @@ use std::{
 
 use byteorder::{WriteBytesExt, LE};
 
+fn align_up<const ALIGN: u32>(v: u32) -> u32 {
+    ((v + ALIGN - 1) / ALIGN) * ALIGN
+}
+
 pub fn create_dds_header(width: u32, height: u32) -> DdsHeader {
+    let mipmap_count =
+        (32 - width.leading_zeros()).max(32 - height.leading_zeros());
     DdsHeader {
         height,
         width,
-        pitch_or_linear_size: 0x228000,
-        depth: 1,
-        mipmap_count: 11,
+        pitch_or_linear_size: align_up::<4>(width) * align_up::<4>(height),
+        depth: 0,
+        mipmap_count,
         pixel_format: PixelFormat,
         dx10_header: Some(Dx10Header {
-            resource_dimension: ResDim::Texture2D,
+            resource_dimension: ResourceDimension::Texture2D,
             alpha_mode: AlphaMode::Straight,
         }),
     }
@@ -77,7 +83,7 @@ impl PixelFormat {
 
 #[repr(u32)]
 #[derive(Clone, Copy)]
-enum ResDim {
+enum ResourceDimension {
     Texture1D = 2,
     Texture2D = 3,
     Texture3D = 4,
@@ -93,7 +99,7 @@ enum AlphaMode {
 }
 
 struct Dx10Header {
-    resource_dimension: ResDim,
+    resource_dimension: ResourceDimension,
     alpha_mode: AlphaMode,
 }
 impl Dx10Header {
