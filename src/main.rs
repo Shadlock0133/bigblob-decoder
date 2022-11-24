@@ -45,37 +45,41 @@ fn read_toc<R: Read + Seek>(mut r: R) -> io::Result<Toc> {
     let entry_count = r.read_u32::<LE>()?;
     let mut entries = vec![];
     for _ in 0..entry_count {
-        let file_type = match r.read_u32::<LE>()? {
-            0 => FileType::Image,
-            1 => FileType::Sound,
-            _ => FileType::Unknown,
-        };
-        let size_decompressed = r.read_u32::<LE>()?;
-        let size = r.read_u32::<LE>()?;
-        let unk2 = (r.read_u32::<LE>()?, r.read_u32::<LE>()?);
-        let unk4 = (r.read_u32::<LE>()?, r.read_u32::<LE>()?);
-        let unk6 = (r.read_u32::<LE>()?, r.read_u32::<LE>()?);
-        let unks = [unk2, unk4, unk6];
-        let width = r.read_u32::<LE>()?;
-        let height = r.read_u32::<LE>()?;
-        let offset = r.read_u32::<LE>()?;
-        let name_len = r.read_u32::<LE>()?;
-        let mut name_buf = vec![0; name_len as _];
-        r.read_exact(&mut name_buf)?;
-        let name = String::from_utf8(name_buf).unwrap();
-        let value = Entry {
-            name,
-            file_type,
-            size,
-            offset,
-            size_decompressed,
-            width,
-            height,
-            unks,
-        };
-        entries.push(value);
+        let entry = read_entry(&mut r)?;
+        entries.push(entry);
     }
     Ok(Toc { entries })
+}
+
+fn read_entry<R: Read>(r: &mut R) -> Result<Entry, io::Error> {
+    let file_type = match r.read_u32::<LE>()? {
+        0 => FileType::Image,
+        1 => FileType::Sound,
+        _ => FileType::Unknown,
+    };
+    let size_decompressed = r.read_u32::<LE>()?;
+    let size = r.read_u32::<LE>()?;
+    let unk2 = (r.read_u32::<LE>()?, r.read_u32::<LE>()?);
+    let unk4 = (r.read_u32::<LE>()?, r.read_u32::<LE>()?);
+    let unk6 = (r.read_u32::<LE>()?, r.read_u32::<LE>()?);
+    let unks = [unk2, unk4, unk6];
+    let width = r.read_u32::<LE>()?;
+    let height = r.read_u32::<LE>()?;
+    let offset = r.read_u32::<LE>()?;
+    let name_len = r.read_u32::<LE>()?;
+    let mut name_buf = vec![0; name_len as _];
+    r.read_exact(&mut name_buf)?;
+    let name = String::from_utf8(name_buf).unwrap();
+    Ok(Entry {
+        name,
+        file_type,
+        size,
+        offset,
+        size_decompressed,
+        width,
+        height,
+        unks,
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -98,38 +102,44 @@ impl FromStr for Format {
 
 fn dump_content(mut file: File, toc: Toc, format: Format) -> io::Result<()> {
     for entry in toc.entries {
-        file.seek(SeekFrom::Start(entry.offset as _))?;
-        let mut content = (&mut file).take(entry.size as _);
-        let mut path = Path::new("dump").join(&entry.name);
-        fs::create_dir_all(path.parent().unwrap())?;
-        let content = {
-            let mut buf = vec![];
-            content.read_to_end(&mut buf)?;
-            buf
-        };
-        let decompressed =
-            lz4_flex::decompress(&content, entry.size_decompressed as _)
-                .unwrap();
-
-        match (entry.file_type, format) {
-            (FileType::Image, Format::Dds) => {
-                path.set_extension("dds");
-                let mut file = File::create(path)?;
-                dds::create_dds_header(entry.width, entry.height)
-                    .write(&mut file)?;
-                file.write_all(&decompressed)?;
-            }
-            (FileType::Image, Format::Png) => {
-                decode_bc7(&decompressed, entry.width, entry.height)
-                    .save(&path)
-                    .unwrap();
-            }
-            (FileType::Sound | FileType::Unknown, _) => {
-                fs::write(path, decompressed)?;
-            }
-        }
+        dump_entry(&mut file, entry, format)?;
     }
     Ok(())
+}
+
+fn dump_entry(
+    file: &mut File,
+    entry: Entry,
+    format: Format,
+) -> Result<(), io::Error> {
+    file.seek(SeekFrom::Start(entry.offset as _))?;
+    let mut content = file.take(entry.size as _);
+    let mut path = Path::new("dump").join(&entry.name);
+    fs::create_dir_all(path.parent().unwrap())?;
+    let content = {
+        let mut buf = vec![];
+        content.read_to_end(&mut buf)?;
+        buf
+    };
+    let decompressed =
+        lz4_flex::decompress(&content, entry.size_decompressed as _).unwrap();
+    Ok(match (entry.file_type, format) {
+        (FileType::Image, Format::Dds) => {
+            path.set_extension("dds");
+            let mut file = File::create(path)?;
+            dds::create_dds_header(entry.width, entry.height)
+                .write(&mut file)?;
+            file.write_all(&decompressed)?;
+        }
+        (FileType::Image, Format::Png) => {
+            decode_bc7(&decompressed, entry.width, entry.height)
+                .save(&path)
+                .unwrap();
+        }
+        (FileType::Sound | FileType::Unknown, _) => {
+            fs::write(path, decompressed)?;
+        }
+    })
 }
 
 fn decode_bc7(data: &[u8], width: u32, height: u32) -> RgbaImage {
@@ -161,7 +171,7 @@ fn decode_bc7(data: &[u8], width: u32, height: u32) -> RgbaImage {
 fn decode_bc7_block(block: u128) -> Result<[[Rgba<u8>; 4]; 4], ()> {
     // TODO: implement it
     if block == 0xaaaaaaac_00000000_00000020 {
-        return Ok([[Rgba([255, 0, 255, 127]); 4]; 4]);
+        return Ok([[Rgba([0; 4]); 4]; 4]);
     }
     let mode = block.trailing_zeros();
     match mode {
