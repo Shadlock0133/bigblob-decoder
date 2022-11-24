@@ -1,13 +1,19 @@
 mod dds;
 
 use std::{
-    env,
     fs::{self, File},
     io::{self, Read, Seek, SeekFrom, Write},
-    path::Path,
+    path::{Path, PathBuf},
+    str::FromStr,
 };
 
 use byteorder::{ReadBytesExt, LE};
+use clap::Parser;
+use image::{Rgba, RgbaImage};
+
+pub fn align_up<const ALIGN: u32>(v: u32) -> u32 {
+    ((v + ALIGN - 1) / ALIGN) * ALIGN
+}
 
 #[derive(Debug)]
 struct Toc {
@@ -72,7 +78,25 @@ fn read_toc<R: Read + Seek>(mut r: R) -> io::Result<Toc> {
     Ok(Toc { entries })
 }
 
-fn dump_content(mut file: File, toc: Toc) -> io::Result<()> {
+#[derive(Clone, Copy)]
+enum Format {
+    Dds,
+    Png,
+}
+
+impl FromStr for Format {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "dds" => Ok(Self::Dds),
+            "png" => Ok(Self::Png),
+            _ => Err("Invalid format"),
+        }
+    }
+}
+
+fn dump_content(mut file: File, toc: Toc, format: Format) -> io::Result<()> {
     for entry in toc.entries {
         file.seek(SeekFrom::Start(entry.offset as _))?;
         let mut content = (&mut file).take(entry.size as _);
@@ -86,22 +110,88 @@ fn dump_content(mut file: File, toc: Toc) -> io::Result<()> {
         let decompressed =
             lz4_flex::decompress(&content, entry.size_decompressed as _)
                 .unwrap();
-        if entry.file_type == FileType::Image {
-            path.set_extension("dds");
+
+        match (entry.file_type, format) {
+            (FileType::Image, Format::Dds) => {
+                path.set_extension("dds");
+                let mut file = File::create(path)?;
+                dds::create_dds_header(entry.width, entry.height)
+                    .write(&mut file)?;
+                file.write_all(&decompressed)?;
+            }
+            (FileType::Image, Format::Png) => {
+                decode_bc7(&decompressed, entry.width, entry.height)
+                    .save(&path)
+                    .unwrap();
+            }
+            (FileType::Sound | FileType::Unknown, _) => {
+                fs::write(path, decompressed)?;
+            }
         }
-        let mut file = File::create(path)?;
-        if entry.file_type == FileType::Image {
-            dds::create_dds_header(entry.width, entry.height)
-                .write(&mut file)?;
-        }
-        file.write_all(&decompressed)?;
     }
     Ok(())
 }
 
+fn decode_bc7(data: &[u8], width: u32, height: u32) -> RgbaImage {
+    let mut image = RgbaImage::new(width, height);
+    let awidth = align_up::<4>(width);
+    let aheight = align_up::<4>(height);
+    let block_count = awidth * aheight / 16;
+    let pos_iter = (0..aheight / 4)
+        .flat_map(|y| (0..awidth / 4).map(move |x| (4 * x, 4 * y)));
+    for (block, (x, y)) in data
+        .chunks_exact(16)
+        .map(|x| u128::from_le_bytes(x.try_into().unwrap()))
+        .take(block_count as usize)
+        .zip(pos_iter)
+    {
+        let pixels = decode_bc7_block(block).unwrap();
+        for dy in 0..4 {
+            for dx in 0..4 {
+                if let Some(pixel) = image.get_pixel_mut_checked(x + dx, y + dy)
+                {
+                    *pixel = pixels[dy as usize][dx as usize];
+                }
+            }
+        }
+    }
+    image
+}
+
+fn decode_bc7_block(block: u128) -> Result<[[Rgba<u8>; 4]; 4], ()> {
+    // TODO: implement it
+    if block == 0xaaaaaaac_00000000_00000020 {
+        return Ok([[Rgba([255, 0, 255, 127]); 4]; 4]);
+    }
+    let mode = block.trailing_zeros();
+    match mode {
+        0 => return Ok([[Rgba([  0,   0,   0, 255]); 4]; 4]),
+        1 => return Ok([[Rgba([  0,   0, 255, 255]); 4]; 4]),
+        2 => return Ok([[Rgba([  0, 255,   0, 255]); 4]; 4]),
+        3 => return Ok([[Rgba([  0, 255, 255, 255]); 4]; 4]),
+        4 => return Ok([[Rgba([255,   0,   0, 255]); 4]; 4]),
+        5 => return Ok([[Rgba([255,   0, 255, 255]); 4]; 4]),
+        6 => return Ok([[Rgba([255, 255,   0, 255]); 4]; 4]),
+        7 => return Ok([[Rgba([255, 255, 255, 255]); 4]; 4]),
+        8.. => return Err(()),
+    }
+}
+
+#[derive(Parser)]
+struct Opt {
+    #[clap(long)]
+    image_format: Option<Format>,
+    assets: Option<PathBuf>,
+}
+
 fn main() {
-    let arg1 = env::args().nth(1);
-    let filename = arg1.as_deref().unwrap_or("assets.bigblob");
+    let opts = Opt::parse();
+    let filename = opts
+        .assets
+        .as_deref()
+        .unwrap_or(Path::new("assets.bigblob"));
+    let format = opts.image_format.unwrap_or(Format::Png);
+
     let mut file = File::open(filename).unwrap();
     let toc = read_toc(&mut file).unwrap();
     for entry in &toc.entries {
@@ -122,5 +212,5 @@ fn main() {
         }
         println!();
     }
-    dump_content(file, toc).unwrap();
+    dump_content(file, toc, format).unwrap();
 }

@@ -7,9 +7,7 @@ use std::{
 
 use byteorder::{WriteBytesExt, LE};
 
-fn align_up<const ALIGN: u32>(v: u32) -> u32 {
-    ((v + ALIGN - 1) / ALIGN) * ALIGN
-}
+use crate::align_up;
 
 pub fn create_dds_header(width: u32, height: u32) -> DdsHeader {
     let mipmap_count =
