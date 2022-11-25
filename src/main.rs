@@ -162,15 +162,15 @@ struct DumpFile {
 
 #[derive(Parser)]
 enum Opt {
-    DumpContent(DumpContent),
-    DumpFile(DumpFile),
+    ExtractAll(DumpContent),
+    ExtractFile(DumpFile),
 }
 
 fn main() {
     let opts = Opt::parse();
     match opts {
-        Opt::DumpContent(dc) => dump_content_command(dc),
-        Opt::DumpFile(df) => dump_file_command(df),
+        Opt::ExtractAll(dc) => dump_content_command(dc),
+        Opt::ExtractFile(df) => dump_file_command(df),
     }
 }
 
