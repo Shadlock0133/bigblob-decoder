@@ -1,3 +1,4 @@
+mod bc7;
 mod dds;
 
 use std::{
@@ -9,7 +10,6 @@ use std::{
 
 use byteorder::{ReadBytesExt, LE};
 use clap::Parser;
-use image::{Rgba, RgbaImage};
 
 pub fn align_up<const ALIGN: u32>(v: u32) -> u32 {
     ((v + ALIGN - 1) / ALIGN) * ALIGN
@@ -132,7 +132,7 @@ fn dump_entry(
             file.write_all(&decompressed)?;
         }
         (FileType::Image, Format::Png) => {
-            decode_bc7(&decompressed, entry.width, entry.height)
+            bc7::decode_bc7(&decompressed, entry.width, entry.height)
                 .save(&path)
                 .unwrap();
         }
@@ -142,68 +142,39 @@ fn dump_entry(
     })
 }
 
-fn decode_bc7(data: &[u8], width: u32, height: u32) -> RgbaImage {
-    let mut image = RgbaImage::new(width, height);
-    let awidth = align_up::<4>(width);
-    let aheight = align_up::<4>(height);
-    let block_count = awidth * aheight / 16;
-    let pos_iter = (0..aheight / 4)
-        .flat_map(|y| (0..awidth / 4).map(move |x| (4 * x, 4 * y)));
-    for (block, (x, y)) in data
-        .chunks_exact(16)
-        .map(|x| u128::from_le_bytes(x.try_into().unwrap()))
-        .take(block_count as usize)
-        .zip(pos_iter)
-    {
-        let pixels = decode_bc7_block(block).unwrap();
-        for dy in 0..4 {
-            for dx in 0..4 {
-                if let Some(pixel) = image.get_pixel_mut_checked(x + dx, y + dy)
-                {
-                    *pixel = pixels[dy as usize][dx as usize];
-                }
-            }
-        }
-    }
-    image
-}
-
-fn decode_bc7_block(block: u128) -> Result<[[Rgba<u8>; 4]; 4], ()> {
-    // TODO: implement it
-    if block == 0xaaaaaaac_00000000_00000020 {
-        return Ok([[Rgba([0; 4]); 4]; 4]);
-    }
-    let mode = block.trailing_zeros();
-    match mode {
-        0 => return Ok([[Rgba([  0,   0,   0, 255]); 4]; 4]),
-        1 => return Ok([[Rgba([  0,   0, 255, 255]); 4]; 4]),
-        2 => return Ok([[Rgba([  0, 255,   0, 255]); 4]; 4]),
-        3 => return Ok([[Rgba([  0, 255, 255, 255]); 4]; 4]),
-        4 => return Ok([[Rgba([255,   0,   0, 255]); 4]; 4]),
-        5 => return Ok([[Rgba([255,   0, 255, 255]); 4]; 4]),
-        6 => return Ok([[Rgba([255, 255,   0, 255]); 4]; 4]),
-        7 => return Ok([[Rgba([255, 255, 255, 255]); 4]; 4]),
-        8.. => return Err(()),
-    }
+#[derive(Parser)]
+struct DumpContent {
+    #[clap(long)]
+    image_format: Option<Format>,
+    /// Location of "assets.bigblob" file
+    assets: Option<PathBuf>,
 }
 
 #[derive(Parser)]
-struct Opt {
+struct DumpFile {
     #[clap(long)]
     image_format: Option<Format>,
+    /// Location of "assets.bigblob" file
     assets: Option<PathBuf>,
+    /// Name of an file inside assets to export
+    file: String,
+}
+
+#[derive(Parser)]
+enum Opt {
+    DumpContent(DumpContent),
+    DumpFile(DumpFile),
 }
 
 fn main() {
     let opts = Opt::parse();
-    let filename = opts
-        .assets
-        .as_deref()
-        .unwrap_or(Path::new("assets.bigblob"));
-    let format = opts.image_format.unwrap_or(Format::Png);
+    match opts {
+        Opt::DumpContent(dc) => dump_content_command(dc),
+        Opt::DumpFile(df) => dump_file_command(df),
+    }
+}
 
-    let mut file = File::open(filename).unwrap();
-    let toc = read_toc(&mut file).unwrap();
+fn print_toc(toc: &Toc) {
     for entry in &toc.entries {
         print!(
             "{} ({:?}) ({} bytes @ {:#x}; {} decompressed)",
@@ -222,5 +193,33 @@ fn main() {
         }
         println!();
     }
+}
+
+fn dump_content_command(opts: DumpContent) {
+    let filename = opts
+        .assets
+        .as_deref()
+        .unwrap_or(Path::new("assets.bigblob"));
+    let format = opts.image_format.unwrap_or(Format::Png);
+
+    let mut file = File::open(filename).unwrap();
+    let toc = read_toc(&mut file).unwrap();
+    print_toc(&toc);
     dump_content(file, toc, format).unwrap();
+}
+
+fn dump_file_command(opts: DumpFile) {
+    let filename = opts
+        .assets
+        .as_deref()
+        .unwrap_or(Path::new("assets.bigblob"));
+    let format = opts.image_format.unwrap_or(Format::Png);
+
+    let mut file = File::open(filename).unwrap();
+    let toc = read_toc(&mut file).unwrap();
+    let Some(entry) = toc.entries.into_iter().find(|e| e.name == opts.file) else {
+        eprintln!("Couldn't find file inside assets: {}", opts.file);
+        return;
+    };
+    dump_entry(&mut file, entry, format).unwrap();
 }
