@@ -169,8 +169,8 @@ enum Opt {
 fn main() {
     let opts = Opt::parse();
     match opts {
-        Opt::ExtractAll(dc) => dump_content_command(dc),
-        Opt::ExtractFile(df) => dump_file_command(df),
+        Opt::ExtractAll(dc) => extract_all(dc),
+        Opt::ExtractFile(df) => extract_file(df),
     }
 }
 
@@ -195,7 +195,7 @@ fn print_toc(toc: &Toc) {
     }
 }
 
-fn dump_content_command(opts: DumpContent) {
+fn extract_all(opts: DumpContent) {
     let filename = opts
         .assets
         .as_deref()
@@ -208,7 +208,7 @@ fn dump_content_command(opts: DumpContent) {
     dump_content(file, toc, format).unwrap();
 }
 
-fn dump_file_command(opts: DumpFile) {
+fn extract_file(opts: DumpFile) {
     let filename = opts
         .assets
         .as_deref()
