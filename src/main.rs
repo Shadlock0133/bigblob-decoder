@@ -113,16 +113,17 @@ fn dump_entry(
     format: Format,
 ) -> Result<(), io::Error> {
     file.seek(SeekFrom::Start(entry.offset as _))?;
-    let mut content = file.take(entry.size as _);
+    let mut file_section = file.take(entry.size as _);
     let mut path = Path::new("dump").join(&entry.name);
     fs::create_dir_all(path.parent().unwrap())?;
-    let content = {
+    let compressed = {
         let mut buf = vec![];
-        content.read_to_end(&mut buf)?;
+        file_section.read_to_end(&mut buf)?;
         buf
     };
     let decompressed =
-        lz4_flex::decompress(&content, entry.size_decompressed as _).unwrap();
+        lz4_flex::decompress(&compressed, entry.size_decompressed as _)
+            .unwrap();
     Ok(match (entry.file_type, format) {
         (FileType::Image, Format::Dds) => {
             path.set_extension("dds");

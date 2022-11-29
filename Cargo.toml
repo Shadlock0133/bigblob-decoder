@@ -8,7 +8,6 @@ edition = "2021"
 [dependencies]
 byteorder = "1.4.3"
 clap = { version = "4.0.26", features = ["derive"] }
-deku = "0.15.0"
 image = { version = "0.24.5", default-features = false, features = ["png"] }
 lz4_flex = { version = "0.9.5", default-features = false, features = [
     "safe-decode",

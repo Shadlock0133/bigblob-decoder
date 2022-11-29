@@ -1,4 +1,9 @@
-use deku::{DekuContainerRead, DekuEnumExt, DekuError, DekuRead};
+use std::{
+    array::from_fn,
+    fmt::Debug,
+    ops::{BitAnd, Shl, ShrAssign, Sub},
+};
+
 use image::{Pixel, Rgb, Rgba, RgbaImage};
 
 use crate::align_up;
@@ -29,143 +34,131 @@ pub fn decode_bc7(data: &[u8], width: u32, height: u32) -> RgbaImage {
     image
 }
 
-#[derive(DekuRead, Debug)]
-#[deku(endian = "little")]
+trait Decode {
+    fn decode(block: u128) -> Self;
+}
+
 struct Block0 {
-    #[deku(bits = 4)]
     partition: u8,
-    #[deku(bits = 4)]
     r: [u8; 6],
-    #[deku(bits = 4)]
     g: [u8; 6],
-    #[deku(bits = 4)]
     b: [u8; 6],
-    #[deku(bits = 1)]
     p: [u8; 6],
-    #[deku(bits = 45)]
     index_data: u64,
 }
 
-#[derive(DekuRead, Debug)]
-#[deku(endian = "little")]
 struct Block1 {
-    #[deku(bits = 6)]
     partition: u8,
-    #[deku(bits = 6)]
     r: [u8; 4],
-    #[deku(bits = 6)]
     g: [u8; 4],
-    #[deku(bits = 6)]
     b: [u8; 4],
-    #[deku(bits = 1)]
     p: [u8; 2],
-    #[deku(bits = 46)]
     index_data: u64,
 }
 
-#[derive(DekuRead, Debug)]
-#[deku(endian = "little")]
 struct Block2 {
-    #[deku(bits = 6)]
     partition: u8,
-    #[deku(bits = 5)]
     r: [u8; 6],
-    #[deku(bits = 5)]
     g: [u8; 6],
-    #[deku(bits = 5)]
     b: [u8; 6],
-    #[deku(bits = 29)]
     index_data: u64,
 }
 
-#[derive(DekuRead, Debug)]
-#[deku(endian = "little")]
 struct Block3 {
-    #[deku(bits = 6)]
     partition: u8,
-    #[deku(bits = 7)]
     r: [u8; 4],
-    #[deku(bits = 7)]
     g: [u8; 4],
-    #[deku(bits = 7)]
     b: [u8; 4],
-    #[deku(bits = 1)]
     p: [u8; 4],
-    #[deku(bits = 30)]
     index_data: u64,
 }
 
-#[derive(DekuRead, Debug)]
-#[deku(endian = "little")]
 struct Block4 {
     rot: Rotation,
-    #[deku(bits = 1)]
     idx_mode: bool,
-    #[deku(bits = 5)]
     r: [u8; 2],
-    #[deku(bits = 5)]
     g: [u8; 2],
-    #[deku(bits = 5)]
     b: [u8; 2],
-    #[deku(bits = 6)]
     a: [u8; 2],
-    #[deku(bits = 31)]
     index_data0: u64,
-    #[deku(bits = 47)]
     index_data1: u64,
 }
 
-#[derive(DekuRead, Debug)]
-#[deku(endian = "little")]
+impl Decode for Block4 {
+    fn decode(mut block: u128) -> Self {
+        let _mode: u8 = take_bits::<_, _, 5>(&mut block);
+        Self {
+            rot: Rotation::from_u2(take_bits::<_, _, 2>(&mut block)),
+            idx_mode: take_bits::<_, u8, 1>(&mut block) != 0,
+            r: from_fn(|_| take_bits::<_, _, 5>(&mut block)),
+            g: from_fn(|_| take_bits::<_, _, 5>(&mut block)),
+            b: from_fn(|_| take_bits::<_, _, 5>(&mut block)),
+            a: from_fn(|_| take_bits::<_, _, 6>(&mut block)),
+            index_data0: take_bits::<_, _, 31>(&mut block),
+            index_data1: take_bits::<_, _, 47>(&mut block),
+        }
+    }
+}
+
 struct Block5 {
     rot: Rotation,
-    #[deku(bits = 7)]
     r: [u8; 2],
-    #[deku(bits = 7)]
     g: [u8; 2],
-    #[deku(bits = 7)]
     b: [u8; 2],
     a: [u8; 2],
-    #[deku(bits = 31)]
     colors: u64,
-    #[deku(bits = 31)]
     alpha: u64,
 }
 
-#[derive(DekuRead, Debug)]
-#[deku(endian = "little")]
+impl Decode for Block5 {
+    fn decode(mut block: u128) -> Self {
+        let _mode: u8 = take_bits::<_, _, 6>(&mut block);
+        Self {
+            rot: Rotation::from_u2(take_bits::<_, _, 2>(&mut block)),
+            r: from_fn(|_| take_bits::<_, _, 7>(&mut block)),
+            g: from_fn(|_| take_bits::<_, _, 7>(&mut block)),
+            b: from_fn(|_| take_bits::<_, _, 7>(&mut block)),
+            a: from_fn(|_| take_bits::<_, _, 8>(&mut block)),
+            colors: take_bits::<_, _, 31>(&mut block),
+            alpha: take_bits::<_, _, 31>(&mut block),
+        }
+    }
+}
+
 struct Block6 {
-    #[deku(bits = 7)]
-    c0: [u8; 4],
-    #[deku(bits = 7)]
-    c1: [u8; 4],
-    #[deku(bits = 1)]
+    r: [u8; 2],
+    g: [u8; 2],
+    b: [u8; 2],
+    a: [u8; 2],
     p: [u8; 2],
-    #[deku(bits = 63)]
     index_data: u64,
 }
 
-#[derive(DekuRead, Debug)]
-#[deku(endian = "little")]
+impl Decode for Block6 {
+    fn decode(mut block: u128) -> Self {
+        let _mode: u8 = take_bits::<_, _, 7>(&mut block);
+        Self {
+            r: from_fn(|_| take_bits::<_, _, 7>(&mut block)),
+            g: from_fn(|_| take_bits::<_, _, 7>(&mut block)),
+            b: from_fn(|_| take_bits::<_, _, 7>(&mut block)),
+            a: from_fn(|_| take_bits::<_, _, 7>(&mut block)),
+            p: from_fn(|_| take_bits::<_, _, 1>(&mut block)),
+            index_data: take_bits::<_, _, 63>(&mut block),
+        }
+    }
+}
+
 struct Block7 {
-    #[deku(bits = 6)]
     partition: u8,
-    #[deku(bits = 5)]
     r: [u8; 4],
-    #[deku(bits = 5)]
     g: [u8; 4],
-    #[deku(bits = 5)]
     b: [u8; 4],
-    #[deku(bits = 5)]
     a: [u8; 4],
-    #[deku(bits = 1)]
     p: [u8; 4],
-    #[deku(bits = 30)]
     index_data: u64,
 }
 
-#[derive(DekuRead, Debug)]
-#[deku(endian = "little", type = "u8", bits = 2, ctx = "_: deku::ctx::Endian")]
+#[derive(PartialEq, Debug)]
 enum Rotation {
     No = 0,
     R = 1,
@@ -174,6 +167,16 @@ enum Rotation {
 }
 
 impl Rotation {
+    fn from_u2(value: u8) -> Self {
+        match value {
+            0 => Self::No,
+            1 => Self::R,
+            2 => Self::G,
+            3 => Self::B,
+            _ => unreachable!(),
+        }
+    }
+
     fn apply(&self, color: &mut Rgba<u8>) {
         match self {
             Rotation::No => (),
@@ -195,45 +198,94 @@ fn interpolate<const BITS: usize>(a: u8, b: u8, index: usize) -> u8 {
     ((da + db + 32) >> 6) as u8
 }
 
-fn take_bits<const BITS: usize>(value: &mut u64) -> usize {
-    let mask = (1 << BITS) - 1;
+fn take_bits<
+    T: From<u8>
+        + Shl<usize, Output = T>
+        + Sub<Output = T>
+        + BitAnd<Output = T>
+        + ShrAssign<usize>
+        + Copy,
+    R: TryFrom<T>,
+    const BITS: usize,
+>(
+    value: &mut T,
+) -> R
+where
+    R::Error: Debug,
+{
+    let mask = (T::from(1) << BITS) - T::from(1);
     let ret = *value & mask;
     *value >>= BITS;
-    ret as usize
+    R::try_from(ret).unwrap()
 }
 
 fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
     // TODO: implement it
-    // FIXME: output doesn't seem correct
     let mode = block.trailing_zeros();
-    let le_bytes = block.to_le_bytes();
-    let input = (&le_bytes[..], mode as usize + 1);
     match mode {
-        0 => {
-            let _data = Block0::from_bytes(input).unwrap().1;
-            [[Rgba([0, 0, 0, 255]); 4]; 4]
-        }
-        1 => {
-            let _data = Block1::from_bytes(input).unwrap().1;
-            [[Rgba([0, 0, 255, 255]); 4]; 4]
-        }
-        2 => {
-            let _data = Block2::from_bytes(input).unwrap().1;
-            [[Rgba([0, 255, 0, 255]); 4]; 4]
-        }
-        3 => {
-            let _data = Block3::from_bytes(input).unwrap().1;
-            [[Rgba([0, 255, 255, 255]); 4]; 4]
-        }
+        0 => [[Rgba([0, 0, 0, 255]); 4]; 4],
+        1 => [[Rgba([0, 0, 255, 255]); 4]; 4],
+        2 => [[Rgba([0, 255, 0, 255]); 4]; 4],
+        3 => [[Rgba([0, 255, 255, 255]); 4]; 4],
         4 => {
-            let _data = Block4::from_bytes(input).unwrap().1;
-            [[Rgba([255, 0, 0, 255]); 4]; 4]
+            let mut data = Block4::decode(block);
+
+            let e = from_fn::<_, 2, _>(|i| {
+                Rgb([data.r[i], data.g[i], data.b[i]])
+                    .map(|x| x << 3)
+                    .map(|x| x | x >> 5)
+            });
+
+            let mut ret = [[Rgba([0; 4]); 4]; 4];
+            if data.idx_mode {
+                // idx is 1, color index takes 3 bits
+                let colors: [_; 8] = std::array::from_fn(|i| {
+                    e[0].map2(&e[1], |a, b| interpolate::<3>(a, b, i))
+                });
+                let a = data.a.map(|x| x << 2).map(|x| x | x >> 6);
+                let alphas: [_; 4] =
+                    std::array::from_fn(|i| interpolate::<2>(a[0], a[1], i));
+
+                for rgba in ret.iter_mut().flatten() {
+                    let [rgb @ .., a] = &mut rgba.0;
+                    *rgb = colors
+                        [take_bits::<_, usize, 3>(&mut data.index_data1)]
+                    .0;
+                    *a =
+                        alphas[take_bits::<_, usize, 2>(&mut data.index_data0)];
+                    data.rot.apply(rgba);
+                }
+            } else {
+                // idx is 0, color index takes 2 bits
+                let colors: [_; 4] = std::array::from_fn(|i| {
+                    e[0].map2(&e[1], |a, b| interpolate::<2>(a, b, i))
+                });
+                let alphas: [_; 8] = std::array::from_fn(|i| {
+                    interpolate::<3>(data.a[0], data.a[1], i)
+                });
+
+                for rgba in ret.iter_mut().flatten() {
+                    let [rgb @ .., a] = &mut rgba.0;
+                    *rgb = colors
+                        [take_bits::<_, usize, 2>(&mut data.index_data0)]
+                    .0;
+                    *a =
+                        alphas[take_bits::<_, usize, 3>(&mut data.index_data1)];
+                    data.rot.apply(rgba);
+                }
+            }
+
+            ret
         }
         5 => {
-            let mut data = Block5::from_bytes(input).unwrap().1;
+            let mut data = Block5::decode(block);
 
-            let e0 = Rgb([data.r[0] << 1, data.g[0] << 1, data.b[0] << 1]);
-            let e1 = Rgb([data.r[1] << 1, data.g[1] << 1, data.b[1] << 1]);
+            let e0 = Rgb([data.r[0], data.g[0], data.b[0]])
+                .map(|x| x << 1)
+                .map(|x| x | x >> 7);
+            let e1 = Rgb([data.r[1], data.g[1], data.b[1]])
+                .map(|x| x << 1)
+                .map(|x| x | x >> 7);
             let colors: [_; 4] = std::array::from_fn(|i| {
                 e0.map2(&e1, |a, b| interpolate::<2>(a, b, i))
             });
@@ -245,63 +297,130 @@ fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
             let mut ret = [[Rgba([0; 4]); 4]; 4];
             for rgba in ret.iter_mut().flatten() {
                 let [rgb @ .., a] = &mut rgba.0;
-                *rgb = colors[take_bits::<2>(&mut data.colors)].0;
-                *a = alphas[take_bits::<2>(&mut data.alpha)];
+                *rgb = colors[take_bits::<_, usize, 2>(&mut data.colors)].0;
+                *a = alphas[take_bits::<_, usize, 2>(&mut data.alpha)];
                 data.rot.apply(rgba);
             }
             ret
         }
         6 => {
-            let mut data = Block6::from_bytes(input).unwrap().1;
+            let mut data = Block6::decode(block);
 
-            let e0 = Rgba(data.c0).map(|x| x << 1 | data.p[0]);
-            let e1 = Rgba(data.c1).map(|x| x << 1 | data.p[1]);
+            let e0 = Rgba([data.r[0], data.g[0], data.b[0], data.a[0]])
+                .map(|x| x << 1 | data.p[0]);
+            let e1 = Rgba([data.r[1], data.g[1], data.b[1], data.a[1]])
+                .map(|x| x << 1 | data.p[1]);
             let colors: [_; 16] = std::array::from_fn(|i| {
                 e0.map2(&e1, |a, b| interpolate::<4>(a, b, i))
             });
 
             let mut ret = [[Rgba([0; 4]); 4]; 4];
             for rgba in ret.iter_mut().flatten() {
-                *rgba = colors[take_bits::<4>(&mut data.index_data)];
+                *rgba = colors[take_bits::<_, usize, 4>(&mut data.index_data)];
             }
 
             ret
         }
-        7 => {
-            let _data = Block7::from_bytes(input).unwrap().1;
-            [[Rgba([255, 255, 255, 255]); 4]; 4]
-        }
+        7 => [[Rgba([255, 255, 255, 255]); 4]; 4],
         8.. => [[Rgba([0; 4]); 4]; 4],
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use deku::DekuContainerRead;
+    use image::Rgba;
 
-    use crate::bc7::{
-        Block0, Block1, Block2, Block3, Block4, Block5, Block6, Block7,
-    };
+    use crate::bc7::{Block4, Decode};
+
+    use super::{decode_bc7_block, Rotation};
 
     #[test]
-    fn check_correct_block_size() {
-        let block = 0u128;
-        let le_bytes = block.to_le_bytes();
-        let (rest, _data) = Block0::from_bytes((&le_bytes, 1)).unwrap();
-        assert_eq!(rest, (&[0u8; 0][..], 0));
-        let (rest, _data) = Block1::from_bytes((&le_bytes, 2)).unwrap();
-        assert_eq!(rest, (&[0u8; 0][..], 0));
-        let (rest, _data) = Block2::from_bytes((&le_bytes, 3)).unwrap();
-        assert_eq!(rest, (&[0u8; 0][..], 0));
-        let (rest, _data) = Block3::from_bytes((&le_bytes, 4)).unwrap();
-        assert_eq!(rest, (&[0u8; 0][..], 0));
-        let (rest, _data) = Block4::from_bytes((&le_bytes, 5)).unwrap();
-        assert_eq!(rest, (&[0u8; 0][..], 0));
-        let (rest, _data) = Block5::from_bytes((&le_bytes, 6)).unwrap();
-        assert_eq!(rest, (&[0u8; 0][..], 0));
-        let (rest, _data) = Block6::from_bytes((&le_bytes, 7)).unwrap();
-        assert_eq!(rest, (&[0u8; 0][..], 0));
-        let (rest, _data) = Block7::from_bytes((&le_bytes, 8)).unwrap();
-        assert_eq!(rest, (&[0u8; 0][..], 0));
+    fn check_block4_max() {
+        let block = u128::MAX;
+        let data = Block4::decode(block);
+        assert_eq!(data.rot, Rotation::B);
+        assert_eq!(data.idx_mode, true);
+        assert_eq!(data.r, [0b11111; 2]);
+        assert_eq!(data.g, [0b11111; 2]);
+        assert_eq!(data.b, [0b11111; 2]);
+        assert_eq!(data.a, [0b111111; 2]);
+        assert_eq!(data.index_data0, (1 << 31) - 1);
+        assert_eq!(data.index_data1, (1 << 47) - 1);
+    }
+
+    #[test]
+    fn check_block4_min() {
+        let block = u128::MIN;
+        let data = Block4::decode(block);
+        assert_eq!(data.rot, Rotation::No);
+        assert_eq!(data.idx_mode, false);
+        assert_eq!(data.r, [0; 2]);
+        assert_eq!(data.g, [0; 2]);
+        assert_eq!(data.b, [0; 2]);
+        assert_eq!(data.a, [0; 2]);
+        assert_eq!(data.index_data0, 0);
+        assert_eq!(data.index_data1, 0);
+    }
+
+    #[test]
+    fn check_block4_test_content() {
+        let block = 0b_101010_101010_11011_11011_11011_11011_11011_11011_0_10_10000_u128;
+        let data = Block4::decode(block);
+        assert_eq!(data.rot, Rotation::G);
+        assert_eq!(data.idx_mode, false);
+        assert_eq!(data.r, [0b11011; 2]);
+        assert_eq!(data.g, [0b11011; 2]);
+        assert_eq!(data.b, [0b11011; 2]);
+        assert_eq!(data.a, [0b101010; 2]);
+        assert_eq!(data.index_data0, 0);
+        assert_eq!(data.index_data1, 0);
+    }
+
+    #[test]
+    fn check_block4_content_by_bit() {
+        for i in 0u8..128 {
+            eprintln!("i: {i}");
+            let block = 1u128 << i;
+            let data = Block4::decode(block);
+            match i {
+                0..=4 => {
+                    assert_eq!(data.rot, Rotation::No);
+                    assert_eq!(data.idx_mode, false);
+                    assert_eq!(data.r, [0; 2]);
+                    assert_eq!(data.g, [0; 2]);
+                    assert_eq!(data.b, [0; 2]);
+                    assert_eq!(data.a, [0; 2]);
+                    assert_eq!(data.index_data0, 0);
+                    assert_eq!(data.index_data1, 0);
+                }
+                5 => assert_eq!(data.rot, Rotation::R),
+                6 => assert_eq!(data.rot, Rotation::G),
+                7 => assert_eq!(data.idx_mode, true),
+                8..=12 => assert_eq!(data.r[0], 1 << (i - 8)),
+                13..=17 => assert_eq!(data.r[1], 1 << (i - 13)),
+                18..=22 => assert_eq!(data.g[0], 1 << (i - 18)),
+                23..=27 => assert_eq!(data.g[1], 1 << (i - 23)),
+                28..=32 => assert_eq!(data.b[0], 1 << (i - 28)),
+                33..=37 => assert_eq!(data.b[1], 1 << (i - 33)),
+                38..=43 => assert_eq!(data.a[0], 1 << (i - 38)),
+                44..=49 => assert_eq!(data.a[1], 1 << (i - 44)),
+                50..=80 => assert_eq!(data.index_data0, 1 << (i - 50)),
+                81..=127 => assert_eq!(data.index_data1, 1 << (i - 81)),
+                128.. => unreachable!(),
+            }
+        }
+    }
+
+    #[test]
+    fn check_block8_decoding() {
+        let output = decode_bc7_block(0);
+        assert_eq!(output, [[Rgba([0; 4]); 4]; 4]);
+    }
+
+    #[test]
+    fn check_transparent_decoding() {
+        let output =
+            decode_bc7_block(0x00000000_aaaaaaac_00000000_00000020_u128);
+        assert_eq!(output, [[Rgba([0; 4]); 4]; 4]);
     }
 }
