@@ -34,6 +34,27 @@ pub fn decode_bc7(data: &[u8], width: u32, height: u32) -> RgbaImage {
     image
 }
 
+fn take_bits<
+    T: From<u8>
+        + Shl<usize, Output = T>
+        + Sub<Output = T>
+        + BitAnd<Output = T>
+        + ShrAssign<usize>
+        + Copy,
+    R: TryFrom<T>,
+    const BITS: usize,
+>(
+    value: &mut T,
+) -> R
+where
+    R::Error: Debug,
+{
+    let mask = (T::from(1) << BITS) - T::from(1);
+    let ret = *value & mask;
+    *value >>= BITS;
+    R::try_from(ret).unwrap()
+}
+
 trait Decode {
     fn decode(block: u128) -> Self;
 }
@@ -47,6 +68,20 @@ struct Block0 {
     index_data: u64,
 }
 
+impl Decode for Block0 {
+    fn decode(mut block: u128) -> Self {
+        let _mode: u8 = take_bits::<_, _, 1>(&mut block);
+        Self {
+            partition: take_bits::<_, u8, 4>(&mut block),
+            r: from_fn(|_| take_bits::<_, _, 4>(&mut block)),
+            g: from_fn(|_| take_bits::<_, _, 4>(&mut block)),
+            b: from_fn(|_| take_bits::<_, _, 4>(&mut block)),
+            p: from_fn(|_| take_bits::<_, _, 1>(&mut block)),
+            index_data: take_bits::<_, _, 45>(&mut block),
+        }
+    }
+}
+
 struct Block1 {
     partition: u8,
     r: [u8; 4],
@@ -56,12 +91,39 @@ struct Block1 {
     index_data: u64,
 }
 
+impl Decode for Block1 {
+    fn decode(mut block: u128) -> Self {
+        let _mode: u8 = take_bits::<_, _, 2>(&mut block);
+        Self {
+            partition: take_bits::<_, u8, 6>(&mut block),
+            r: from_fn(|_| take_bits::<_, _, 6>(&mut block)),
+            g: from_fn(|_| take_bits::<_, _, 6>(&mut block)),
+            b: from_fn(|_| take_bits::<_, _, 6>(&mut block)),
+            p: from_fn(|_| take_bits::<_, _, 1>(&mut block)),
+            index_data: take_bits::<_, _, 46>(&mut block),
+        }
+    }
+}
+
 struct Block2 {
     partition: u8,
     r: [u8; 6],
     g: [u8; 6],
     b: [u8; 6],
-    index_data: u64,
+    index_data: u32,
+}
+
+impl Decode for Block2 {
+    fn decode(mut block: u128) -> Self {
+        let _mode: u8 = take_bits::<_, _, 3>(&mut block);
+        Self {
+            partition: take_bits::<_, u8, 6>(&mut block),
+            r: from_fn(|_| take_bits::<_, _, 5>(&mut block)),
+            g: from_fn(|_| take_bits::<_, _, 5>(&mut block)),
+            b: from_fn(|_| take_bits::<_, _, 5>(&mut block)),
+            index_data: take_bits::<_, _, 29>(&mut block),
+        }
+    }
 }
 
 struct Block3 {
@@ -70,7 +132,21 @@ struct Block3 {
     g: [u8; 4],
     b: [u8; 4],
     p: [u8; 4],
-    index_data: u64,
+    index_data: u32,
+}
+
+impl Decode for Block3 {
+    fn decode(mut block: u128) -> Self {
+        let _mode: u8 = take_bits::<_, _, 4>(&mut block);
+        Self {
+            partition: take_bits::<_, u8, 6>(&mut block),
+            r: from_fn(|_| take_bits::<_, _, 7>(&mut block)),
+            g: from_fn(|_| take_bits::<_, _, 7>(&mut block)),
+            b: from_fn(|_| take_bits::<_, _, 7>(&mut block)),
+            p: from_fn(|_| take_bits::<_, _, 1>(&mut block)),
+            index_data: take_bits::<_, _, 30>(&mut block),
+        }
+    }
 }
 
 struct Block4 {
@@ -80,7 +156,7 @@ struct Block4 {
     g: [u8; 2],
     b: [u8; 2],
     a: [u8; 2],
-    index_data0: u64,
+    index_data0: u32,
     index_data1: u64,
 }
 
@@ -106,8 +182,8 @@ struct Block5 {
     g: [u8; 2],
     b: [u8; 2],
     a: [u8; 2],
-    colors: u64,
-    alpha: u64,
+    colors: u32,
+    alpha: u32,
 }
 
 impl Decode for Block5 {
@@ -155,7 +231,22 @@ struct Block7 {
     b: [u8; 4],
     a: [u8; 4],
     p: [u8; 4],
-    index_data: u64,
+    index_data: u32,
+}
+
+impl Decode for Block7 {
+    fn decode(mut block: u128) -> Self {
+        let _mode: u8 = take_bits::<_, _, 8>(&mut block);
+        Self {
+            partition: take_bits::<_, _, 6>(&mut block),
+            r: from_fn(|_| take_bits::<_, _, 5>(&mut block)),
+            g: from_fn(|_| take_bits::<_, _, 5>(&mut block)),
+            b: from_fn(|_| take_bits::<_, _, 5>(&mut block)),
+            a: from_fn(|_| take_bits::<_, _, 5>(&mut block)),
+            p: from_fn(|_| take_bits::<_, _, 1>(&mut block)),
+            index_data: take_bits::<_, _, 30>(&mut block),
+        }
+    }
 }
 
 #[derive(PartialEq, Debug)]
@@ -198,35 +289,239 @@ fn interpolate<const BITS: usize>(a: u8, b: u8, index: usize) -> u8 {
     ((da + db + 32) >> 6) as u8
 }
 
-fn take_bits<
-    T: From<u8>
-        + Shl<usize, Output = T>
-        + Sub<Output = T>
-        + BitAnd<Output = T>
-        + ShrAssign<usize>
-        + Copy,
-    R: TryFrom<T>,
-    const BITS: usize,
->(
-    value: &mut T,
-) -> R
-where
-    R::Error: Debug,
-{
-    let mask = (T::from(1) << BITS) - T::from(1);
-    let ret = *value & mask;
-    *value >>= BITS;
-    R::try_from(ret).unwrap()
-}
+const PARTITIONS_2: [[usize; 16]; 64] = [
+    [0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1],
+    [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+    [0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1],
+    [0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1],
+    [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1],
+    [0, 0, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1],
+    [0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1],
+    [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 1],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1],
+    [0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1],
+    [0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+    [0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1],
+    [0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1],
+    [0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0],
+    [0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0],
+    [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0],
+    [0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1],
+    [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0],
+    [0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0],
+    [0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0],
+    [0, 0, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0],
+    [0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0],
+    [0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0],
+    [0, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 0],
+    [0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0, 0],
+    [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
+    [0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1],
+    [0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0],
+    [0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0],
+    [0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0],
+    [0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0],
+    [0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1],
+    [0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1],
+    [0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0],
+    [0, 0, 0, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0],
+    [0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0],
+    [0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 0],
+    [0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0],
+    [0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1],
+    [0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1],
+    [0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0],
+    [0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+    [0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0],
+    [0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0],
+    [0, 1, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1],
+    [0, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1],
+    [0, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0],
+    [0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 0],
+    [0, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1],
+    [0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1],
+    [0, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1],
+    [0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1],
+    [0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1],
+    [0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0],
+    [0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0],
+    [0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1],
+];
+const PARTITIONS_3: [[usize; 16]; 64] = [
+    [0, 0, 1, 1, 0, 0, 1, 1, 0, 2, 2, 1, 2, 2, 2, 2],
+    [0, 0, 0, 1, 0, 0, 1, 1, 2, 2, 1, 1, 2, 2, 2, 1],
+    [0, 0, 0, 0, 2, 0, 0, 1, 2, 2, 1, 1, 2, 2, 1, 1],
+    [0, 2, 2, 2, 0, 0, 2, 2, 0, 0, 1, 1, 0, 1, 1, 1],
+    [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 1, 1, 2, 2],
+    [0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 2, 2, 0, 0, 2, 2],
+    [0, 0, 2, 2, 0, 0, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1],
+    [0, 0, 1, 1, 0, 0, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1],
+    [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2],
+    [0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2],
+    [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2],
+    [0, 0, 1, 2, 0, 0, 1, 2, 0, 0, 1, 2, 0, 0, 1, 2],
+    [0, 1, 1, 2, 0, 1, 1, 2, 0, 1, 1, 2, 0, 1, 1, 2],
+    [0, 1, 2, 2, 0, 1, 2, 2, 0, 1, 2, 2, 0, 1, 2, 2],
+    [0, 0, 1, 1, 0, 1, 1, 2, 1, 1, 2, 2, 1, 2, 2, 2],
+    [0, 0, 1, 1, 2, 0, 0, 1, 2, 2, 0, 0, 2, 2, 2, 0],
+    [0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 2, 1, 1, 2, 2],
+    [0, 1, 1, 1, 0, 0, 1, 1, 2, 0, 0, 1, 2, 2, 0, 0],
+    [0, 0, 0, 0, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2],
+    [0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 1, 1, 1, 1],
+    [0, 1, 1, 1, 0, 1, 1, 1, 0, 2, 2, 2, 0, 2, 2, 2],
+    [0, 0, 0, 1, 0, 0, 0, 1, 2, 2, 2, 1, 2, 2, 2, 1],
+    [0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 2, 2, 0, 1, 2, 2],
+    [0, 0, 0, 0, 1, 1, 0, 0, 2, 2, 1, 0, 2, 2, 1, 0],
+    [0, 1, 2, 2, 0, 1, 2, 2, 0, 0, 1, 1, 0, 0, 0, 0],
+    [0, 0, 1, 2, 0, 0, 1, 2, 1, 1, 2, 2, 2, 2, 2, 2],
+    [0, 1, 1, 0, 1, 2, 2, 1, 1, 2, 2, 1, 0, 1, 1, 0],
+    [0, 0, 0, 0, 0, 1, 1, 0, 1, 2, 2, 1, 1, 2, 2, 1],
+    [0, 0, 2, 2, 1, 1, 0, 2, 1, 1, 0, 2, 0, 0, 2, 2],
+    [0, 1, 1, 0, 0, 1, 1, 0, 2, 0, 0, 2, 2, 2, 2, 2],
+    [0, 0, 1, 1, 0, 1, 2, 2, 0, 1, 2, 2, 0, 0, 1, 1],
+    [0, 0, 0, 0, 2, 0, 0, 0, 2, 2, 1, 1, 2, 2, 2, 1],
+    [0, 0, 0, 0, 0, 0, 0, 2, 1, 1, 2, 2, 1, 2, 2, 2],
+    [0, 2, 2, 2, 0, 0, 2, 2, 0, 0, 1, 2, 0, 0, 1, 1],
+    [0, 0, 1, 1, 0, 0, 1, 2, 0, 0, 2, 2, 0, 2, 2, 2],
+    [0, 1, 2, 0, 0, 1, 2, 0, 0, 1, 2, 0, 0, 1, 2, 0],
+    [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 0, 0, 0, 0],
+    [0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0],
+    [0, 1, 2, 0, 2, 0, 1, 2, 1, 2, 0, 1, 0, 1, 2, 0],
+    [0, 0, 1, 1, 2, 2, 0, 0, 1, 1, 2, 2, 0, 0, 1, 1],
+    [0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 0, 0, 0, 0, 1, 1],
+    [0, 1, 0, 1, 0, 1, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2],
+    [0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 2, 1, 2, 1, 2, 1],
+    [0, 0, 2, 2, 1, 1, 2, 2, 0, 0, 2, 2, 1, 1, 2, 2],
+    [0, 0, 2, 2, 0, 0, 1, 1, 0, 0, 2, 2, 0, 0, 1, 1],
+    [0, 2, 2, 0, 1, 2, 2, 1, 0, 2, 2, 0, 1, 2, 2, 1],
+    [0, 1, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 0, 1, 0, 1],
+    [0, 0, 0, 0, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1],
+    [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 2, 2, 2, 2],
+    [0, 2, 2, 2, 0, 1, 1, 1, 0, 2, 2, 2, 0, 1, 1, 1],
+    [0, 0, 0, 2, 1, 1, 1, 2, 0, 0, 0, 2, 1, 1, 1, 2],
+    [0, 0, 0, 0, 2, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2],
+    [0, 2, 2, 2, 0, 1, 1, 1, 0, 1, 1, 1, 0, 2, 2, 2],
+    [0, 0, 0, 2, 1, 1, 1, 2, 1, 1, 1, 2, 0, 0, 0, 2],
+    [0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 2, 2, 2, 2],
+    [0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 1, 2, 2, 1, 1, 2],
+    [0, 1, 1, 0, 0, 1, 1, 0, 2, 2, 2, 2, 2, 2, 2, 2],
+    [0, 0, 2, 2, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 2, 2],
+    [0, 0, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 0, 0, 2, 2],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 1, 2],
+    [0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 1],
+    [0, 2, 2, 2, 1, 2, 2, 2, 0, 2, 2, 2, 1, 2, 2, 2],
+    [0, 1, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2],
+    [0, 1, 1, 1, 2, 0, 1, 1, 2, 2, 0, 1, 2, 2, 2, 0],
+];
 
 fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
-    // TODO: implement it
     let mode = block.trailing_zeros();
     match mode {
-        0 => [[Rgba([0, 0, 0, 255]); 4]; 4],
-        1 => [[Rgba([0, 0, 255, 255]); 4]; 4],
-        2 => [[Rgba([0, 255, 0, 255]); 4]; 4],
-        3 => [[Rgba([0, 255, 255, 255]); 4]; 4],
+        0 => {
+            let data = Block0::decode(block);
+
+            let subsets: [[Rgb<u8>; 8]; 3] = from_fn(|sub| {
+                let e: [_; 2] = from_fn(|i| {
+                    let index = 2 * sub + i;
+                    Rgb([data.r[index], data.g[index], data.b[index]])
+                        .map(|x| (x << 1) | data.p[index])
+                        .map(|x| x << 3)
+                        .map(|x| x | x >> 5)
+                });
+                from_fn(|i| e[0].map2(&e[1], |a, b| interpolate::<3>(a, b, i)))
+            });
+
+            let mut ret = [[Rgba([0, 0, 0, 255]); 4]; 4];
+            let mut index_data = data.index_data;
+            for (i, rgba) in ret.iter_mut().flatten().enumerate() {
+                let [rgb @ .., _] = &mut rgba.0;
+                let subset = PARTITIONS_3[data.partition as usize][i];
+                *rgb = subsets[subset]
+                    [take_bits::<_, usize, 2>(&mut index_data)]
+                .0;
+            }
+            ret
+        }
+        1 => {
+            let data = Block1::decode(block);
+
+            let subsets: [[Rgb<u8>; 8]; 2] = from_fn(|sub| {
+                let e: [_; 2] = from_fn(|i| {
+                    let index = 2 * sub + i;
+                    Rgb([data.r[index], data.g[index], data.b[index]])
+                        .map(|x| (x << 1) | data.p[sub])
+                        .map(|x| x << 1)
+                        .map(|x| x | x >> 7)
+                });
+                from_fn(|i| e[0].map2(&e[1], |a, b| interpolate::<3>(a, b, i)))
+            });
+
+            let mut ret = [[Rgba([0, 0, 0, 255]); 4]; 4];
+            let mut index_data = data.index_data;
+            for (i, rgba) in ret.iter_mut().flatten().enumerate() {
+                let [rgb @ .., _] = &mut rgba.0;
+                let subset = PARTITIONS_2[data.partition as usize][i];
+                *rgb = subsets[subset]
+                    [take_bits::<_, usize, 3>(&mut index_data)]
+                .0;
+            }
+            ret
+        }
+        2 => {
+            let data = Block2::decode(block);
+
+            let subsets: [[Rgb<u8>; 4]; 2] = from_fn(|sub| {
+                let e: [_; 2] = from_fn(|i| {
+                    let index = 2 * sub + i;
+                    Rgb([data.r[index], data.g[index], data.b[index]])
+                        .map(|x| x << (8 - 5))
+                        .map(|x| x | x >> 5)
+                });
+                from_fn(|i| e[0].map2(&e[1], |a, b| interpolate::<2>(a, b, i)))
+            });
+
+            let mut ret = [[Rgba([0, 0, 0, 255]); 4]; 4];
+            let mut index_data = data.index_data;
+            for (i, rgba) in ret.iter_mut().flatten().enumerate() {
+                let [rgb @ .., _] = &mut rgba.0;
+                let subset = PARTITIONS_3[data.partition as usize][i];
+                *rgb = subsets[subset]
+                    [take_bits::<_, usize, 2>(&mut index_data)]
+                .0;
+            }
+            ret
+        }
+        3 => {
+            let data = Block3::decode(block);
+
+            let subsets: [[Rgb<u8>; 8]; 3] = from_fn(|sub| {
+                let e: [_; 2] = from_fn(|i| {
+                    let index = 2 * sub + i;
+                    Rgb([data.r[index], data.g[index], data.b[index]])
+                        .map(|x| (x << 1) | data.p[index])
+                });
+                from_fn(|i| e[0].map2(&e[1], |a, b| interpolate::<3>(a, b, i)))
+            });
+
+            let mut ret = [[Rgba([0, 0, 0, 255]); 4]; 4];
+            let mut index_data = data.index_data;
+            for (i, rgba) in ret.iter_mut().flatten().enumerate() {
+                let [rgb @ .., _] = &mut rgba.0;
+                let subset = PARTITIONS_2[data.partition as usize][i];
+                *rgb = subsets[subset]
+                    [take_bits::<_, usize, 2>(&mut index_data)]
+                .0;
+            }
+            ret
+        }
         4 => {
             let mut data = Block4::decode(block);
 
@@ -321,7 +616,34 @@ fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
 
             ret
         }
-        7 => [[Rgba([255, 255, 255, 255]); 4]; 4],
+        7 => {
+            let data = Block7::decode(block);
+
+            let subsets: [[Rgba<u8>; 4]; 2] = from_fn(|sub| {
+                let e: [_; 2] = from_fn(|i| {
+                    let index = 2 * sub + i;
+                    Rgba([
+                        data.r[index],
+                        data.g[index],
+                        data.b[index],
+                        data.a[index],
+                    ])
+                    .map(|x| (x << 1) | data.p[index])
+                    .map(|x| x << (8 - 6))
+                    .map(|x| x | x >> 6)
+                });
+                from_fn(|i| e[0].map2(&e[1], |a, b| interpolate::<2>(a, b, i)))
+            });
+
+            let mut ret = [[Rgba([0, 0, 0, 255]); 4]; 4];
+            let mut index_data = data.index_data;
+            for (i, rgba) in ret.iter_mut().flatten().enumerate() {
+                let subset = PARTITIONS_2[data.partition as usize][i];
+                *rgba =
+                    subsets[subset][take_bits::<_, usize, 2>(&mut index_data)];
+            }
+            ret
+        }
         8.. => [[Rgba([0; 4]); 4]; 4],
     }
 }
@@ -330,9 +652,67 @@ fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
 mod tests {
     use image::Rgba;
 
-    use crate::bc7::{Block4, Decode};
+    use crate::bc7::{
+        Block0, Block1, Block2, Block3, Block4, Block5, Block6, Block7, Decode,
+    };
 
     use super::{decode_bc7_block, Rotation};
+
+    const B1: u8 = (1 << 1) - 1;
+    const B2: u8 = (1 << 2) - 1;
+    const B3: u8 = (1 << 3) - 1;
+    const B4: u8 = (1 << 4) - 1;
+    const B5: u8 = (1 << 5) - 1;
+    const B6: u8 = (1 << 6) - 1;
+    const B7: u8 = (1 << 7) - 1;
+    const B8: u8 = u8::MAX;
+
+    #[test]
+    fn check_block0_max() {
+        let block = u128::MAX;
+        let data = Block0::decode(block);
+        assert_eq!(data.partition, B4);
+        assert_eq!(data.r, [B4; 6]);
+        assert_eq!(data.g, [B4; 6]);
+        assert_eq!(data.b, [B4; 6]);
+        assert_eq!(data.p, [B1; 6]);
+        assert_eq!(data.index_data, (1 << 45) - 1);
+    }
+
+    #[test]
+    fn check_block1_max() {
+        let block = u128::MAX;
+        let data = Block1::decode(block);
+        assert_eq!(data.partition, B6);
+        assert_eq!(data.r, [B6; 4]);
+        assert_eq!(data.g, [B6; 4]);
+        assert_eq!(data.b, [B6; 4]);
+        assert_eq!(data.p, [B1; 2]);
+        assert_eq!(data.index_data, (1 << 46) - 1);
+    }
+
+    #[test]
+    fn check_block2_max() {
+        let block = u128::MAX;
+        let data = Block2::decode(block);
+        assert_eq!(data.partition, B6);
+        assert_eq!(data.r, [B5; 6]);
+        assert_eq!(data.g, [B5; 6]);
+        assert_eq!(data.b, [B5; 6]);
+        assert_eq!(data.index_data, (1 << 29) - 1);
+    }
+
+    #[test]
+    fn check_block3_max() {
+        let block = u128::MAX;
+        let data = Block3::decode(block);
+        assert_eq!(data.partition, B6);
+        assert_eq!(data.r, [B7; 4]);
+        assert_eq!(data.g, [B7; 4]);
+        assert_eq!(data.b, [B7; 4]);
+        assert_eq!(data.p, [B1; 4]);
+        assert_eq!(data.index_data, (1 << 30) - 1);
+    }
 
     #[test]
     fn check_block4_max() {
@@ -340,26 +720,50 @@ mod tests {
         let data = Block4::decode(block);
         assert_eq!(data.rot, Rotation::B);
         assert_eq!(data.idx_mode, true);
-        assert_eq!(data.r, [0b11111; 2]);
-        assert_eq!(data.g, [0b11111; 2]);
-        assert_eq!(data.b, [0b11111; 2]);
-        assert_eq!(data.a, [0b111111; 2]);
+        assert_eq!(data.r, [B5; 2]);
+        assert_eq!(data.g, [B5; 2]);
+        assert_eq!(data.b, [B5; 2]);
+        assert_eq!(data.a, [B6; 2]);
         assert_eq!(data.index_data0, (1 << 31) - 1);
         assert_eq!(data.index_data1, (1 << 47) - 1);
     }
 
     #[test]
-    fn check_block4_min() {
-        let block = u128::MIN;
-        let data = Block4::decode(block);
-        assert_eq!(data.rot, Rotation::No);
-        assert_eq!(data.idx_mode, false);
-        assert_eq!(data.r, [0; 2]);
-        assert_eq!(data.g, [0; 2]);
-        assert_eq!(data.b, [0; 2]);
-        assert_eq!(data.a, [0; 2]);
-        assert_eq!(data.index_data0, 0);
-        assert_eq!(data.index_data1, 0);
+    fn check_block5_max() {
+        let block = u128::MAX;
+        let data = Block5::decode(block);
+        assert_eq!(data.rot, Rotation::B);
+        assert_eq!(data.r, [B7; 2]);
+        assert_eq!(data.g, [B7; 2]);
+        assert_eq!(data.b, [B7; 2]);
+        assert_eq!(data.a, [B8; 2]);
+        assert_eq!(data.colors, (1 << 31) - 1);
+        assert_eq!(data.alpha, (1 << 31) - 1);
+    }
+
+    #[test]
+    fn check_block6_max() {
+        let block = u128::MAX;
+        let data = Block6::decode(block);
+        assert_eq!(data.r, [B7; 2]);
+        assert_eq!(data.g, [B7; 2]);
+        assert_eq!(data.b, [B7; 2]);
+        assert_eq!(data.a, [B7; 2]);
+        assert_eq!(data.p, [B1; 2]);
+        assert_eq!(data.index_data, (1 << 63) - 1);
+    }
+
+    #[test]
+    fn check_block7_max() {
+        let block = u128::MAX;
+        let data = Block7::decode(block);
+        assert_eq!(data.partition, B6);
+        assert_eq!(data.r, [B5; 4]);
+        assert_eq!(data.g, [B5; 4]);
+        assert_eq!(data.b, [B5; 4]);
+        assert_eq!(data.a, [B5; 4]);
+        assert_eq!(data.p, [B1; 4]);
+        assert_eq!(data.index_data, (1 << 30) - 1);
     }
 
     #[test]
