@@ -1,39 +1,10 @@
 mod decode;
-
-use std::{
-    fmt::Debug,
-    mem::size_of,
-    ops::{BitAnd, Shl, ShrAssign, Sub},
-};
+mod encode;
 
 use image::Rgba;
 
 pub use decode::decode_bc7;
-
-fn take_bits<
-    T: From<u8>
-        + Shl<usize, Output = T>
-        + Sub<Output = T>
-        + BitAnd<Output = T>
-        + ShrAssign<usize>
-        + Copy,
-    R: TryFrom<T>,
-    const BITS: usize,
->(
-    value: &mut T,
-) -> R
-where
-    R::Error: Debug,
-{
-    assert!(0 < BITS);
-    assert!(BITS <= (8 * size_of::<T>()));
-    assert!(BITS <= (8 * size_of::<R>()));
-
-    let mask = (T::from(1) << BITS) - T::from(1);
-    let ret = *value & mask;
-    *value >>= BITS;
-    R::try_from(ret).unwrap()
-}
+pub use encode::encode_bc7;
 
 struct Block0 {
     partition: u8,

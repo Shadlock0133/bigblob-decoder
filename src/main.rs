@@ -8,8 +8,10 @@ use std::{
     str::FromStr,
 };
 
+use bc7::encode_bc7;
 use byteorder::{ReadBytesExt, LE};
 use clap::Parser;
+use dds::create_dds_header;
 
 pub fn align_up<const ALIGN: u32>(v: u32) -> u32 {
     ((v + ALIGN - 1) / ALIGN) * ALIGN
@@ -107,8 +109,8 @@ fn dump_content(mut file: File, toc: Toc, format: Format) -> io::Result<()> {
     Ok(())
 }
 
-fn dump_entry(
-    file: &mut File,
+fn dump_entry<R: Read + Seek>(
+    mut file: R,
     entry: Entry,
     format: Format,
 ) -> Result<(), io::Error> {
@@ -162,16 +164,24 @@ struct DumpFile {
 }
 
 #[derive(Parser)]
+struct TestEncodeBc7 {
+    input_image: PathBuf,
+    output: PathBuf,
+}
+
+#[derive(Parser)]
 enum Opt {
     ExtractAll(DumpContent),
     ExtractFile(DumpFile),
+    TestEncodeBc7(TestEncodeBc7),
 }
 
 fn main() {
     let opts = Opt::parse();
     match opts {
-        Opt::ExtractAll(dc) => extract_all(dc),
-        Opt::ExtractFile(df) => extract_file(df),
+        Opt::ExtractAll(opt) => extract_all(opt),
+        Opt::ExtractFile(opt) => extract_file(opt),
+        Opt::TestEncodeBc7(opt) => test_encode_bc7(opt),
     }
 }
 
@@ -223,4 +233,13 @@ fn extract_file(opts: DumpFile) {
         return;
     };
     dump_entry(&mut file, entry, format).unwrap();
+}
+
+fn test_encode_bc7(opts: TestEncodeBc7) {
+    let image = image::open(opts.input_image).unwrap().into_rgba8();
+    let (width, height) = image.dimensions();
+    let contents = encode_bc7(image);
+    let mut file = File::create(opts.output).unwrap();
+    create_dds_header(width, height).write(&mut file).unwrap();
+    file.write_all(&contents).unwrap();
 }

@@ -1,12 +1,17 @@
-use std::array::from_fn;
+use std::{
+    array::from_fn,
+    fmt::Debug,
+    mem::size_of,
+    ops::{BitAnd, Shl, ShrAssign, Sub},
+};
 
 use image::{Pixel, Rgb, Rgba, RgbaImage};
 
 use crate::align_up;
 
 use super::{
-    interpolate, take_bits, Block0, Block1, Block2, Block3, Block4, Block5,
-    Block6, Block7, Rotation, PARTITIONS_2, PARTITIONS_3,
+    interpolate, Block0, Block1, Block2, Block3, Block4, Block5, Block6,
+    Block7, Rotation, PARTITIONS_2, PARTITIONS_3,
 };
 
 pub fn decode_bc7(data: &[u8], width: u32, height: u32) -> RgbaImage {
@@ -36,6 +41,8 @@ pub fn decode_bc7(data: &[u8], width: u32, height: u32) -> RgbaImage {
 }
 
 pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
+    // FIXME: output doesn't match
+    // TODO: anchors
     let mode = block.trailing_zeros();
     match mode {
         0 => {
@@ -136,6 +143,7 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
             ret
         }
         4 => {
+            // TODO: fix
             let mut data = Block4::decode(block);
 
             let e = from_fn::<_, 2, _>(|i| {
@@ -261,7 +269,33 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
     }
 }
 
-pub trait Decode {
+fn take_bits<
+    T: From<u8>
+        + Shl<usize, Output = T>
+        + Sub<Output = T>
+        + BitAnd<Output = T>
+        + ShrAssign<usize>
+        + Copy,
+    R: TryFrom<T>,
+    const BITS: usize,
+>(
+    value: &mut T,
+) -> R
+where
+    R::Error: Debug,
+{
+    const ERR_MSG: &str = "BITS must be between 0 and size of T in bits";
+    assert!(0 < BITS, "{}", ERR_MSG);
+    assert!(BITS <= (8 * size_of::<T>()), "{}", ERR_MSG);
+    assert!(BITS <= (8 * size_of::<R>()), "{}", ERR_MSG);
+
+    let mask = (T::from(1) << BITS) - T::from(1);
+    let ret = *value & mask;
+    *value >>= BITS;
+    R::try_from(ret).unwrap()
+}
+
+trait Decode {
     fn decode(block: u128) -> Self;
 }
 
