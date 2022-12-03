@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::{
     io::{self, Write},
     mem::size_of,
@@ -38,9 +36,18 @@ pub struct DdsHeader {
 }
 impl DdsHeader {
     pub fn write<W: Write>(&self, mut w: W) -> io::Result<()> {
-        w.write_all(b"DDS ")?;
+        let magic = b"DDS ";
+        w.write_all(magic)?;
+        // struct size
         w.write_u32::<LE>(124)?;
-        w.write_u32::<LE>(0x000a1007)?;
+        // flags
+        let flags = 0x1 // DDSD_CAPS (required)
+            | 0x2 // DDSD_HEIGHT (required)
+            | 0x4 // DDSD_WIDTH (required)
+            | 0x1000 // DDSD_PIXELFORMAT (required)
+            | 0x2_0000 // DDSD_MIPMAPCOUNT
+            | 0x8_0000; // DDSD_LINEARSIZE
+        w.write_u32::<LE>(flags)?;
         w.write_u32::<LE>(self.height)?;
         w.write_u32::<LE>(self.width)?;
         w.write_u32::<LE>(self.pitch_or_linear_size)?;
@@ -51,9 +58,15 @@ impl DdsHeader {
             w.write_u32::<LE>(0)?;
         }
         self.pixel_format.write(&mut w)?;
-        w.write_u32::<LE>(0x00401008)?;
+        let caps = 0x8 // DDSCAPS_COMPLEX (optional): more than one surface (e.g. a mipmap)
+            | 0x40_0000 // DDSCAPS_MIPMAP (optional)
+            | 0x1000; // DDSCAPS_TEXTURE (required)
+        w.write_u32::<LE>(caps)?;
+        // caps2: cubemap details/volume texture
         w.write_u32::<LE>(0)?;
+        // caps3 (unused)
         w.write_u32::<LE>(0)?;
+        // caps4 (unused)
         w.write_u32::<LE>(0)?;
         // reserved2
         w.write_u32::<LE>(0)?;
@@ -67,13 +80,21 @@ impl DdsHeader {
 struct PixelFormat;
 impl PixelFormat {
     fn write<W: Write>(&self, mut w: W) -> io::Result<()> {
+        // struct size
         w.write_u32::<LE>(8 * size_of::<u32>() as u32)?;
-        w.write_u32::<LE>(4)?;
-        w.write_all(b"DX10")?;
+        let flags = 0x4; // DDPF_FOURCC
+        w.write_u32::<LE>(flags)?;
+        let four_cc = b"DX10";
+        w.write_all(four_cc)?;
+        // rgb bit count
         w.write_u32::<LE>(0)?;
+        // r mask
         w.write_u32::<LE>(0)?;
+        // g mask
         w.write_u32::<LE>(0)?;
+        // b mask
         w.write_u32::<LE>(0)?;
+        // a mask
         w.write_u32::<LE>(0)?;
         Ok(())
     }
@@ -102,11 +123,14 @@ struct Dx10Header {
 }
 impl Dx10Header {
     fn write<W: Write>(&self, mut w: W) -> io::Result<()> {
-        w.write_u32::<LE>(98)?;
+        let format = 98; // DXGI_FORMAT_BC7_UNORM
+        w.write_u32::<LE>(format)?;
         w.write_u32::<LE>(self.resource_dimension as u32)?;
+        // misc flag
         w.write_u32::<LE>(0)?;
+        // array size
         w.write_u32::<LE>(1)?;
-        w.write_u32::<LE>(1)?;
+        w.write_u32::<LE>(self.alpha_mode as u32)?;
         Ok(())
     }
 }
