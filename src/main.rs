@@ -146,6 +146,12 @@ fn dump_entry<R: Read + Seek>(
 }
 
 #[derive(Parser)]
+struct ListContent {
+    /// Location of "assets.bigblob" file
+    assets: Option<PathBuf>,
+}
+
+#[derive(Parser)]
 struct DumpContent {
     #[clap(long)]
     image_format: Option<Format>,
@@ -171,6 +177,7 @@ struct TestEncodeBc7 {
 
 #[derive(Parser)]
 enum Opt {
+    ListContent(ListContent),
     ExtractAll(DumpContent),
     ExtractFile(DumpFile),
     TestEncodeBc7(TestEncodeBc7),
@@ -179,6 +186,7 @@ enum Opt {
 fn main() {
     let opts = Opt::parse();
     match opts {
+        Opt::ListContent(opt) => list_content(opt),
         Opt::ExtractAll(opt) => extract_all(opt),
         Opt::ExtractFile(opt) => extract_file(opt),
         Opt::TestEncodeBc7(opt) => test_encode_bc7(opt),
@@ -206,6 +214,17 @@ fn print_toc(toc: &Toc) {
     }
 }
 
+fn list_content(opts: ListContent) {
+    let filename = opts
+        .assets
+        .as_deref()
+        .unwrap_or(Path::new("assets.bigblob"));
+
+    let mut file = File::open(filename).unwrap();
+    let toc = read_toc(&mut file).unwrap();
+    print_toc(&toc);
+}
+
 fn extract_all(opts: DumpContent) {
     let filename = opts
         .assets
@@ -215,7 +234,6 @@ fn extract_all(opts: DumpContent) {
 
     let mut file = File::open(filename).unwrap();
     let toc = read_toc(&mut file).unwrap();
-    print_toc(&toc);
     dump_content(file, toc, format).unwrap();
 }
 
