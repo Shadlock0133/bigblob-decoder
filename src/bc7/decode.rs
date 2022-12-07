@@ -11,7 +11,7 @@ use crate::align_up;
 
 use super::{
     interpolate, Block0, Block1, Block2, Block3, Block4, Block5, Block6,
-    Block7, Rotation, PARTITIONS_2, PARTITIONS_3,
+    Block7, Rotation, ANCHOR_INDEX_2, PARTITIONS_2, PARTITIONS_3,
 };
 
 pub fn decode_bc7(data: &[u8], width: u32, height: u32) -> RgbaImage {
@@ -64,9 +64,8 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
             for (i, rgba) in ret.iter_mut().flatten().enumerate() {
                 let [rgb @ .., _] = &mut rgba.0;
                 let subset = PARTITIONS_3[data.partition as usize][i];
-                *rgb = subsets[subset]
-                    [take_bits::<_, usize, 2>(&mut index_data)]
-                .0;
+                let index = take_bits::<_, usize, 2>(&mut index_data);
+                *rgb = subsets[subset][index].0;
             }
             ret
         }
@@ -89,9 +88,8 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
             for (i, rgba) in ret.iter_mut().flatten().enumerate() {
                 let [rgb @ .., _] = &mut rgba.0;
                 let subset = PARTITIONS_2[data.partition as usize][i];
-                *rgb = subsets[subset]
-                    [take_bits::<_, usize, 3>(&mut index_data)]
-                .0;
+                let index = take_bits::<_, usize, 3>(&mut index_data);
+                *rgb = subsets[subset][index].0;
             }
             ret
         }
@@ -113,9 +111,8 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
             for (i, rgba) in ret.iter_mut().flatten().enumerate() {
                 let [rgb @ .., _] = &mut rgba.0;
                 let subset = PARTITIONS_3[data.partition as usize][i];
-                *rgb = subsets[subset]
-                    [take_bits::<_, usize, 2>(&mut index_data)]
-                .0;
+                let index = take_bits::<_, usize, 2>(&mut index_data);
+                *rgb = subsets[subset][index].0;
             }
             ret
         }
@@ -136,9 +133,8 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
             for (i, rgba) in ret.iter_mut().flatten().enumerate() {
                 let [rgb @ .., _] = &mut rgba.0;
                 let subset = PARTITIONS_2[data.partition as usize][i];
-                *rgb = subsets[subset]
-                    [take_bits::<_, usize, 2>(&mut index_data)]
-                .0;
+                let index = take_bits::<_, usize, 2>(&mut index_data);
+                *rgb = subsets[subset][index].0;
             }
             ret
         }
@@ -162,13 +158,21 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
                 let alphas: [_; 4] =
                     std::array::from_fn(|i| interpolate::<2>(a[0], a[1], i));
 
-                for rgba in ret.iter_mut().flatten() {
+                for (i, rgba) in ret.iter_mut().flatten().enumerate() {
                     let [rgb @ .., a] = &mut rgba.0;
-                    *rgb = colors
-                        [take_bits::<_, usize, 3>(&mut data.index_data1)]
-                    .0;
-                    *a =
-                        alphas[take_bits::<_, usize, 2>(&mut data.index_data0)];
+                    let (color_index, alpha_index) = if i == 0 {
+                        (
+                            take_bits::<_, usize, 2>(&mut data.index_data1),
+                            take_bits::<_, usize, 1>(&mut data.index_data0),
+                        )
+                    } else {
+                        (
+                            take_bits::<_, usize, 3>(&mut data.index_data1),
+                            take_bits::<_, usize, 2>(&mut data.index_data0),
+                        )
+                    };
+                    *rgb = colors[color_index].0;
+                    *a = alphas[alpha_index];
                     data.rot.apply(rgba);
                 }
             } else {
@@ -180,13 +184,21 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
                     interpolate::<3>(data.a[0], data.a[1], i)
                 });
 
-                for rgba in ret.iter_mut().flatten() {
+                for (i, rgba) in ret.iter_mut().flatten().enumerate() {
                     let [rgb @ .., a] = &mut rgba.0;
-                    *rgb = colors
-                        [take_bits::<_, usize, 2>(&mut data.index_data0)]
-                    .0;
-                    *a =
-                        alphas[take_bits::<_, usize, 3>(&mut data.index_data1)];
+                    let (color_index, alpha_index) = if i == 0 {
+                        (
+                            take_bits::<_, usize, 1>(&mut data.index_data0),
+                            take_bits::<_, usize, 2>(&mut data.index_data1),
+                        )
+                    } else {
+                        (
+                            take_bits::<_, usize, 2>(&mut data.index_data0),
+                            take_bits::<_, usize, 3>(&mut data.index_data1),
+                        )
+                    };
+                    *rgb = colors[color_index].0;
+                    *a = alphas[alpha_index];
                     data.rot.apply(rgba);
                 }
             }
@@ -211,10 +223,21 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
             });
 
             let mut ret = [[Rgba([0; 4]); 4]; 4];
-            for rgba in ret.iter_mut().flatten() {
+            for (i, rgba) in ret.iter_mut().flatten().enumerate() {
                 let [rgb @ .., a] = &mut rgba.0;
-                *rgb = colors[take_bits::<_, usize, 2>(&mut data.colors)].0;
-                *a = alphas[take_bits::<_, usize, 2>(&mut data.alpha)];
+                let (color_index, alpha_index) = if i == 0 {
+                    (
+                        take_bits::<_, usize, 1>(&mut data.colors),
+                        take_bits::<_, usize, 1>(&mut data.alpha),
+                    )
+                } else {
+                    (
+                        take_bits::<_, usize, 2>(&mut data.colors),
+                        take_bits::<_, usize, 2>(&mut data.alpha),
+                    )
+                };
+                *rgb = colors[color_index].0;
+                *a = alphas[alpha_index];
                 data.rot.apply(rgba);
             }
             ret
@@ -231,8 +254,13 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
             });
 
             let mut ret = [[Rgba([0; 4]); 4]; 4];
-            for rgba in ret.iter_mut().flatten() {
-                *rgba = colors[take_bits::<_, usize, 4>(&mut data.index_data)];
+            for (i, rgba) in ret.iter_mut().flatten().enumerate() {
+                let index = if i == 0 {
+                    take_bits::<_, usize, 3>(&mut data.index_data)
+                } else {
+                    take_bits::<_, usize, 4>(&mut data.index_data)
+                };
+                *rgba = colors[index];
             }
 
             ret
@@ -260,8 +288,12 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
             let mut index_data = data.index_data;
             for (i, rgba) in ret.iter_mut().flatten().enumerate() {
                 let subset = PARTITIONS_2[data.partition as usize][i];
-                *rgba =
-                    subsets[subset][take_bits::<_, usize, 2>(&mut index_data)];
+                let index = if i == 0 || i == ANCHOR_INDEX_2[subset] {
+                    take_bits::<_, usize, 1>(&mut index_data)
+                } else {
+                    take_bits::<_, usize, 2>(&mut index_data)
+                };
+                *rgba = subsets[subset][index];
             }
             ret
         }
