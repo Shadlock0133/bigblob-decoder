@@ -37,15 +37,28 @@ pub fn encode_bc7_block(pixels: [[Rgba<u8>; 4]; 4]) -> u128 {
     if pixels == [[Rgba([0; 4]); 4]; 4] {
         return 0x00000000_aaaaaaac_00000000_00000020_u128;
     }
-    Block6 {
-        r: [0b1111111; 2],
-        g: [0b0; 2],
-        b: [0b1111111; 2],
-        a: [0b1111111; 2],
-        p: [0b1; 2],
-        index_data: 0,
+    let uses_transparency = pixels.iter().flatten().any(|x| x.0[3] != 255);
+    if uses_transparency {
+        Block6 {
+            r: [0b1111111; 2],
+            g: [0b0; 2],
+            b: [0b1111111; 2],
+            a: [0b0011111; 2],
+            p: [0b1; 2],
+            index_data: 0,
+        }
+        .encode()
+    } else {
+        Block6 {
+            r: [0b1111111; 2],
+            g: [0b0; 2],
+            b: [0b1111111; 2],
+            a: [0b1111111; 2],
+            p: [0b1; 2],
+            index_data: 0,
+        }
+        .encode()
     }
-    .encode()
 }
 
 /// Pushes `BITS` amount of bits from `value` into `dest`.
