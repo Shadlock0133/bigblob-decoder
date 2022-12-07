@@ -7,7 +7,7 @@ use image::{Rgba, RgbaImage};
 
 use crate::align_up;
 
-use super::{Block0, Block1, Block6};
+use super::{Block0, Block1, Block2, Block3, Block4, Block5, Block6, Block7};
 
 pub fn encode_bc7(image: RgbaImage) -> Vec<u8> {
     let (width, height) = image.dimensions();
@@ -144,8 +144,75 @@ impl Encode for Block1 {
         put_bits_array_rev::<_, _, 6, 4>(&mut ret, self.g);
         put_bits_array_rev::<_, _, 6, 4>(&mut ret, self.r);
         put_bits::<_, _, 6>(&mut ret, self.partition);
+        // mode
         put_bits::<_, _, 1>(&mut ret, 1u8);
         ret <<= 1;
+        ret
+    }
+}
+
+impl Encode for Block2 {
+    fn encode(self) -> u128 {
+        let mut ret = 0;
+        put_bits::<_, _, 29>(&mut ret, self.index_data);
+        put_bits_array_rev::<_, _, 5, 6>(&mut ret, self.b);
+        put_bits_array_rev::<_, _, 5, 6>(&mut ret, self.g);
+        put_bits_array_rev::<_, _, 5, 6>(&mut ret, self.r);
+        put_bits::<_, _, 6>(&mut ret, self.partition);
+        // mode
+        put_bits::<_, _, 1>(&mut ret, 1u8);
+        ret <<= 2;
+        ret
+    }
+}
+
+impl Encode for Block3 {
+    fn encode(self) -> u128 {
+        let mut ret = 0;
+        put_bits::<_, _, 30>(&mut ret, self.index_data);
+        put_bits_array_rev::<_, _, 1, 4>(&mut ret, self.p);
+        put_bits_array_rev::<_, _, 7, 4>(&mut ret, self.b);
+        put_bits_array_rev::<_, _, 7, 4>(&mut ret, self.g);
+        put_bits_array_rev::<_, _, 7, 4>(&mut ret, self.r);
+        put_bits::<_, _, 6>(&mut ret, self.partition);
+        // mode
+        put_bits::<_, _, 1>(&mut ret, 1u8);
+        ret <<= 3;
+        ret
+    }
+}
+
+impl Encode for Block4 {
+    fn encode(self) -> u128 {
+        let mut ret = 0;
+        put_bits::<_, _, 47>(&mut ret, self.index_data1);
+        put_bits::<_, _, 31>(&mut ret, self.index_data0);
+        put_bits_array_rev::<_, _, 6, 2>(&mut ret, self.a);
+        put_bits_array_rev::<_, _, 5, 2>(&mut ret, self.b);
+        put_bits_array_rev::<_, _, 5, 2>(&mut ret, self.g);
+        put_bits_array_rev::<_, _, 5, 2>(&mut ret, self.r);
+        put_bits::<_, _, 1>(&mut ret, self.idx_mode);
+        put_bits::<_, _, 2>(&mut ret, self.rot.to_u2());
+        // mode
+        put_bits::<_, _, 1>(&mut ret, 1u8);
+        ret <<= 4;
+        ret
+    }
+}
+
+impl Encode for Block5 {
+    fn encode(self) -> u128 {
+        let mut ret = 0;
+        put_bits::<_, _, 31>(&mut ret, self.alpha_index_data);
+        put_bits::<_, _, 31>(&mut ret, self.color_index_data);
+        put_bits_array_rev::<_, _, 8, 2>(&mut ret, self.a);
+        put_bits_array_rev::<_, _, 7, 2>(&mut ret, self.b);
+        put_bits_array_rev::<_, _, 7, 2>(&mut ret, self.g);
+        put_bits_array_rev::<_, _, 7, 2>(&mut ret, self.r);
+        put_bits::<_, _, 2>(&mut ret, self.rot.to_u2());
+        // mode
+        put_bits::<_, _, 1>(&mut ret, 1u8);
+        ret <<= 5;
         ret
     }
 }
@@ -159,8 +226,26 @@ impl Encode for Block6 {
         put_bits_array_rev::<_, _, 7, 2>(&mut ret, self.b);
         put_bits_array_rev::<_, _, 7, 2>(&mut ret, self.g);
         put_bits_array_rev::<_, _, 7, 2>(&mut ret, self.r);
+        // mode
         put_bits::<_, _, 1>(&mut ret, 1u8);
         ret <<= 6;
+        ret
+    }
+}
+
+impl Encode for Block7 {
+    fn encode(self) -> u128 {
+        let mut ret = 0;
+        put_bits::<_, _, 30>(&mut ret, self.index_data);
+        put_bits_array_rev::<_, _, 1, 4>(&mut ret, self.p);
+        put_bits_array_rev::<_, _, 5, 4>(&mut ret, self.a);
+        put_bits_array_rev::<_, _, 5, 4>(&mut ret, self.b);
+        put_bits_array_rev::<_, _, 5, 4>(&mut ret, self.g);
+        put_bits_array_rev::<_, _, 5, 4>(&mut ret, self.r);
+        put_bits::<_, _, 6>(&mut ret, self.partition);
+        // mode
+        put_bits::<_, _, 1>(&mut ret, 1u8);
+        ret <<= 7;
         ret
     }
 }

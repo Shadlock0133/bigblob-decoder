@@ -81,6 +81,7 @@ struct Block7 {
     index_data: u32,
 }
 
+/// Channel swap between alpha and one of color channel
 #[derive(PartialEq, Debug)]
 enum Rotation {
     No = 0,
@@ -98,6 +99,10 @@ impl Rotation {
             3 => Self::B,
             _ => unreachable!(),
         }
+    }
+
+    fn to_u2(self) -> u8 {
+        self as u8
     }
 
     fn apply(&self, color: &mut Rgba<u8>) {
