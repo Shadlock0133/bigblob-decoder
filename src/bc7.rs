@@ -58,8 +58,8 @@ struct Block5 {
     g: [u8; 2],
     b: [u8; 2],
     a: [u8; 2],
-    colors: u32,
-    alpha: u32,
+    color_index_data: u32,
+    alpha_index_data: u32,
 }
 
 struct Block6 {

@@ -11,7 +11,8 @@ use crate::align_up;
 
 use super::{
     interpolate, Block0, Block1, Block2, Block3, Block4, Block5, Block6,
-    Block7, Rotation, ANCHOR_INDEX_2, PARTITIONS_2, PARTITIONS_3,
+    Block7, Rotation, ANCHOR_INDEX_2, ANCHOR_INDEX_3_2, ANCHOR_INDEX_3_3,
+    PARTITIONS_2, PARTITIONS_3,
 };
 
 pub fn decode_bc7(data: &[u8], width: u32, height: u32) -> RgbaImage {
@@ -61,10 +62,17 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
 
             let mut ret = [[Rgba([0, 0, 0, 255]); 4]; 4];
             let mut index_data = data.index_data;
+            let partition = data.partition as usize;
+            let anchors =
+                [0, ANCHOR_INDEX_3_2[partition], ANCHOR_INDEX_3_3[partition]];
             for (i, rgba) in ret.iter_mut().flatten().enumerate() {
                 let [rgb @ .., _] = &mut rgba.0;
-                let subset = PARTITIONS_3[data.partition as usize][i];
-                let index = take_bits::<_, usize, 2>(&mut index_data);
+                let subset = PARTITIONS_3[partition][i];
+                let index = if anchors.contains(&i) {
+                    take_bits::<_, usize, 1>(&mut index_data)
+                } else {
+                    take_bits::<_, usize, 2>(&mut index_data)
+                };
                 *rgb = subsets[subset][index].0;
             }
             ret
@@ -85,10 +93,16 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
 
             let mut ret = [[Rgba([0, 0, 0, 255]); 4]; 4];
             let mut index_data = data.index_data;
+            let partition = data.partition as usize;
+            let anchors = [0, ANCHOR_INDEX_2[partition]];
             for (i, rgba) in ret.iter_mut().flatten().enumerate() {
                 let [rgb @ .., _] = &mut rgba.0;
-                let subset = PARTITIONS_2[data.partition as usize][i];
-                let index = take_bits::<_, usize, 3>(&mut index_data);
+                let subset = PARTITIONS_2[partition][i];
+                let index = if anchors.contains(&i) {
+                    take_bits::<_, usize, 2>(&mut index_data)
+                } else {
+                    take_bits::<_, usize, 3>(&mut index_data)
+                };
                 *rgb = subsets[subset][index].0;
             }
             ret
@@ -108,10 +122,17 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
 
             let mut ret = [[Rgba([0, 0, 0, 255]); 4]; 4];
             let mut index_data = data.index_data;
+            let partition = data.partition as usize;
+            let anchors =
+                [0, ANCHOR_INDEX_3_2[partition], ANCHOR_INDEX_3_3[partition]];
             for (i, rgba) in ret.iter_mut().flatten().enumerate() {
                 let [rgb @ .., _] = &mut rgba.0;
-                let subset = PARTITIONS_3[data.partition as usize][i];
-                let index = take_bits::<_, usize, 2>(&mut index_data);
+                let subset = PARTITIONS_3[partition][i];
+                let index = if anchors.contains(&i) {
+                    take_bits::<_, usize, 1>(&mut index_data)
+                } else {
+                    take_bits::<_, usize, 2>(&mut index_data)
+                };
                 *rgb = subsets[subset][index].0;
             }
             ret
@@ -130,17 +151,22 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
 
             let mut ret = [[Rgba([0, 0, 0, 255]); 4]; 4];
             let mut index_data = data.index_data;
+            let partition = data.partition as usize;
+            let anchors = [0, ANCHOR_INDEX_2[partition]];
             for (i, rgba) in ret.iter_mut().flatten().enumerate() {
                 let [rgb @ .., _] = &mut rgba.0;
-                let subset = PARTITIONS_2[data.partition as usize][i];
-                let index = take_bits::<_, usize, 2>(&mut index_data);
+                let subset = PARTITIONS_2[partition][i];
+                let index = if anchors.contains(&i) {
+                    take_bits::<_, usize, 1>(&mut index_data)
+                } else {
+                    take_bits::<_, usize, 2>(&mut index_data)
+                };
                 *rgb = subsets[subset][index].0;
             }
             ret
         }
         4 => {
-            // TODO: fix
-            let mut data = Block4::decode(block);
+            let data = Block4::decode(block);
 
             let e = from_fn::<_, 2, _>(|i| {
                 Rgb([data.r[i], data.g[i], data.b[i]])
@@ -158,17 +184,22 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
                 let alphas: [_; 4] =
                     std::array::from_fn(|i| interpolate::<2>(a[0], a[1], i));
 
+                let Block4 {
+                    index_data0: mut alpha_data,
+                    index_data1: mut color_data,
+                    ..
+                } = data;
                 for (i, rgba) in ret.iter_mut().flatten().enumerate() {
                     let [rgb @ .., a] = &mut rgba.0;
                     let (color_index, alpha_index) = if i == 0 {
                         (
-                            take_bits::<_, usize, 2>(&mut data.index_data1),
-                            take_bits::<_, usize, 1>(&mut data.index_data0),
+                            take_bits::<_, usize, 2>(&mut color_data),
+                            take_bits::<_, usize, 1>(&mut alpha_data),
                         )
                     } else {
                         (
-                            take_bits::<_, usize, 3>(&mut data.index_data1),
-                            take_bits::<_, usize, 2>(&mut data.index_data0),
+                            take_bits::<_, usize, 3>(&mut color_data),
+                            take_bits::<_, usize, 2>(&mut alpha_data),
                         )
                     };
                     *rgb = colors[color_index].0;
@@ -184,17 +215,22 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
                     interpolate::<3>(data.a[0], data.a[1], i)
                 });
 
+                let Block4 {
+                    index_data0: mut color_data,
+                    index_data1: mut alpha_data,
+                    ..
+                } = data;
                 for (i, rgba) in ret.iter_mut().flatten().enumerate() {
                     let [rgb @ .., a] = &mut rgba.0;
                     let (color_index, alpha_index) = if i == 0 {
                         (
-                            take_bits::<_, usize, 1>(&mut data.index_data0),
-                            take_bits::<_, usize, 2>(&mut data.index_data1),
+                            take_bits::<_, usize, 1>(&mut color_data),
+                            take_bits::<_, usize, 2>(&mut alpha_data),
                         )
                     } else {
                         (
-                            take_bits::<_, usize, 2>(&mut data.index_data0),
-                            take_bits::<_, usize, 3>(&mut data.index_data1),
+                            take_bits::<_, usize, 2>(&mut color_data),
+                            take_bits::<_, usize, 3>(&mut alpha_data),
                         )
                     };
                     *rgb = colors[color_index].0;
@@ -206,7 +242,7 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
             ret
         }
         5 => {
-            let mut data = Block5::decode(block);
+            let data = Block5::decode(block);
 
             let e0 = Rgb([data.r[0], data.g[0], data.b[0]])
                 .map(|x| x << 1)
@@ -223,17 +259,22 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
             });
 
             let mut ret = [[Rgba([0; 4]); 4]; 4];
+            let Block5 {
+                mut color_index_data,
+                mut alpha_index_data,
+                ..
+            } = data;
             for (i, rgba) in ret.iter_mut().flatten().enumerate() {
                 let [rgb @ .., a] = &mut rgba.0;
                 let (color_index, alpha_index) = if i == 0 {
                     (
-                        take_bits::<_, usize, 1>(&mut data.colors),
-                        take_bits::<_, usize, 1>(&mut data.alpha),
+                        take_bits::<_, usize, 1>(&mut color_index_data),
+                        take_bits::<_, usize, 1>(&mut alpha_index_data),
                     )
                 } else {
                     (
-                        take_bits::<_, usize, 2>(&mut data.colors),
-                        take_bits::<_, usize, 2>(&mut data.alpha),
+                        take_bits::<_, usize, 2>(&mut color_index_data),
+                        take_bits::<_, usize, 2>(&mut alpha_index_data),
                     )
                 };
                 *rgb = colors[color_index].0;
@@ -243,7 +284,7 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
             ret
         }
         6 => {
-            let mut data = Block6::decode(block);
+            let data = Block6::decode(block);
 
             let e0 = Rgba([data.r[0], data.g[0], data.b[0], data.a[0]])
                 .map(|x| x << 1 | data.p[0]);
@@ -254,11 +295,12 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
             });
 
             let mut ret = [[Rgba([0; 4]); 4]; 4];
+            let mut index_data = data.index_data;
             for (i, rgba) in ret.iter_mut().flatten().enumerate() {
                 let index = if i == 0 {
-                    take_bits::<_, usize, 3>(&mut data.index_data)
+                    take_bits::<_, usize, 3>(&mut index_data)
                 } else {
-                    take_bits::<_, usize, 4>(&mut data.index_data)
+                    take_bits::<_, usize, 4>(&mut index_data)
                 };
                 *rgba = colors[index];
             }
@@ -411,8 +453,8 @@ impl Decode for Block5 {
             g: from_fn(|_| take_bits::<_, _, 7>(&mut block)),
             b: from_fn(|_| take_bits::<_, _, 7>(&mut block)),
             a: from_fn(|_| take_bits::<_, _, 8>(&mut block)),
-            colors: take_bits::<_, _, 31>(&mut block),
-            alpha: take_bits::<_, _, 31>(&mut block),
+            color_index_data: take_bits::<_, _, 31>(&mut block),
+            alpha_index_data: take_bits::<_, _, 31>(&mut block),
         }
     }
 }
@@ -535,8 +577,8 @@ mod tests {
         assert_eq!(data.g, [B7; 2]);
         assert_eq!(data.b, [B7; 2]);
         assert_eq!(data.a, [B8; 2]);
-        assert_eq!(data.colors, (1 << 31) - 1);
-        assert_eq!(data.alpha, (1 << 31) - 1);
+        assert_eq!(data.color_index_data, (1 << 31) - 1);
+        assert_eq!(data.alpha_index_data, (1 << 31) - 1);
     }
 
     #[test]
