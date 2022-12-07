@@ -28,7 +28,7 @@ pub fn decode_bc7(data: &[u8], width: u32, height: u32) -> RgbaImage {
         .take(block_count as usize)
         .zip(pos_iter)
     {
-        let pixels = decode_bc7_block(block);
+        let pixels = decode_bc7_block(block).unwrap();
         for dy in 0..4 {
             for dx in 0..4 {
                 if let Some(pixel) = image.get_pixel_mut_checked(x + dx, y + dy)
@@ -41,11 +41,10 @@ pub fn decode_bc7(data: &[u8], width: u32, height: u32) -> RgbaImage {
     image
 }
 
-pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
+pub fn decode_bc7_block(block: u128) -> Option<[[Rgba<u8>; 4]; 4]> {
     // FIXME: output doesn't match
-    // TODO: anchors
     let mode = block.trailing_zeros();
-    match mode {
+    let ret = match mode {
         0 => {
             let data = Block0::decode(block);
 
@@ -173,6 +172,7 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
                     .map(|x| x << 3)
                     .map(|x| x | x >> 5)
             });
+            let a = data.a.map(|x| x << 2).map(|x| x | x >> 6);
 
             let mut ret = [[Rgba([0; 4]); 4]; 4];
             if data.idx_mode {
@@ -180,7 +180,6 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
                 let colors: [_; 8] = std::array::from_fn(|i| {
                     e[0].map2(&e[1], |a, b| interpolate::<3>(a, b, i))
                 });
-                let a = data.a.map(|x| x << 2).map(|x| x | x >> 6);
                 let alphas: [_; 4] =
                     std::array::from_fn(|i| interpolate::<2>(a[0], a[1], i));
 
@@ -211,9 +210,8 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
                 let colors: [_; 4] = std::array::from_fn(|i| {
                     e[0].map2(&e[1], |a, b| interpolate::<2>(a, b, i))
                 });
-                let alphas: [_; 8] = std::array::from_fn(|i| {
-                    interpolate::<3>(data.a[0], data.a[1], i)
-                });
+                let alphas: [_; 8] =
+                    std::array::from_fn(|i| interpolate::<3>(a[0], a[1], i));
 
                 let Block4 {
                     index_data0: mut color_data,
@@ -326,11 +324,13 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
                 from_fn(|i| e[0].map2(&e[1], |a, b| interpolate::<2>(a, b, i)))
             });
 
-            let mut ret = [[Rgba([0, 0, 0, 255]); 4]; 4];
+            let mut ret = [[Rgba([0; 4]); 4]; 4];
             let mut index_data = data.index_data;
+            let partition = data.partition as usize;
+            let anchors = [0, ANCHOR_INDEX_2[partition]];
             for (i, rgba) in ret.iter_mut().flatten().enumerate() {
-                let subset = PARTITIONS_2[data.partition as usize][i];
-                let index = if i == 0 || i == ANCHOR_INDEX_2[subset] {
+                let subset = PARTITIONS_2[partition][i];
+                let index = if anchors.contains(&i) {
                     take_bits::<_, usize, 1>(&mut index_data)
                 } else {
                     take_bits::<_, usize, 2>(&mut index_data)
@@ -339,8 +339,9 @@ pub fn decode_bc7_block(block: u128) -> [[Rgba<u8>; 4]; 4] {
             }
             ret
         }
-        8.. => [[Rgba([0; 4]); 4]; 4],
-    }
+        8.. => return None,
+    };
+    Some(ret)
 }
 
 fn take_bits<
@@ -657,14 +658,15 @@ mod tests {
 
     #[test]
     fn check_block8_decoding() {
-        let output = decode_bc7_block(0);
+        let output = decode_bc7_block(0).unwrap();
         assert_eq!(output, [[Rgba([0; 4]); 4]; 4]);
     }
 
     #[test]
     fn check_transparent_decoding() {
         let output =
-            decode_bc7_block(0x00000000_aaaaaaac_00000000_00000020_u128);
+            decode_bc7_block(0x00000000_aaaaaaac_00000000_00000020_u128)
+                .unwrap();
         assert_eq!(output, [[Rgba([0; 4]); 4]; 4]);
     }
 }
