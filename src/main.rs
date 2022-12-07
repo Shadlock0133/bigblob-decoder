@@ -8,7 +8,7 @@ use std::{
     str::FromStr,
 };
 
-use bc7::encode_bc7;
+use bc7::{decode_bc7, encode_bc7};
 use byteorder::{ReadBytesExt, LE};
 use clap::Parser;
 use dds::create_dds_header;
@@ -53,7 +53,7 @@ fn read_toc<R: Read + Seek>(mut r: R) -> io::Result<Toc> {
     Ok(Toc { entries })
 }
 
-fn read_entry<R: Read>(r: &mut R) -> Result<Entry, io::Error> {
+fn read_entry<R: Read>(r: &mut R) -> io::Result<Entry> {
     let file_type = match r.read_u32::<LE>()? {
         0 => FileType::Image,
         1 => FileType::Sound,
@@ -113,7 +113,7 @@ fn dump_entry<R: Read + Seek>(
     mut file: R,
     entry: Entry,
     format: Format,
-) -> Result<(), io::Error> {
+) -> io::Result<()> {
     file.seek(SeekFrom::Start(entry.offset as _))?;
     let mut file_section = file.take(entry.size as _);
     let mut path = Path::new("dump").join(&entry.name);
@@ -130,12 +130,11 @@ fn dump_entry<R: Read + Seek>(
         (FileType::Image, Format::Dds) => {
             path.set_extension("dds");
             let mut file = File::create(path)?;
-            dds::create_dds_header(entry.width, entry.height)
-                .write(&mut file)?;
+            create_dds_header(entry.width, entry.height).write(&mut file)?;
             file.write_all(&decompressed)?;
         }
         (FileType::Image, Format::Png) => {
-            bc7::decode_bc7(&decompressed, entry.width, entry.height)
+            decode_bc7(&decompressed, entry.width, entry.height)
                 .save(&path)
                 .unwrap();
         }
