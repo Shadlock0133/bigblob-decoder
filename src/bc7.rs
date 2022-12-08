@@ -91,7 +91,7 @@ enum Rotation {
 }
 
 impl Rotation {
-    fn from_u2(value: u8) -> Self {
+    const fn from_u2(value: u8) -> Self {
         match value {
             0 => Self::No,
             1 => Self::R,
@@ -101,7 +101,7 @@ impl Rotation {
         }
     }
 
-    fn to_u2(self) -> u8 {
+    const fn to_u2(self) -> u8 {
         self as u8
     }
 
@@ -120,7 +120,8 @@ const WEIGHT3: [u16; 8] = [0, 9, 18, 27, 37, 46, 55, 64];
 const WEIGHT4: [u16; 16] =
     [0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64];
 const WEIGHTS: [&[u16]; 3] = [&WEIGHT2, &WEIGHT3, &WEIGHT4];
-fn interpolate<const BITS: usize>(a: u8, b: u8, index: usize) -> u8 {
+
+const fn interpolate<const BITS: usize>(a: u8, b: u8, index: usize) -> u8 {
     let da = (64 - WEIGHTS[BITS - 2][index]) * (a as u16);
     let db = WEIGHTS[BITS - 2][index] * (b as u16);
     ((da + db + 32) >> 6) as u8
