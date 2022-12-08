@@ -42,7 +42,6 @@ pub fn decode_bc7(data: &[u8], width: u32, height: u32) -> RgbaImage {
 }
 
 pub fn decode_bc7_block(block: u128) -> Option<[[Rgba<u8>; 4]; 4]> {
-    // FIXME: output doesn't match
     let mode = block.trailing_zeros();
     let ret = match mode {
         0 => {
