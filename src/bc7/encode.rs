@@ -7,7 +7,9 @@ use image::{Rgba, RgbaImage};
 
 use crate::align_up;
 
-use super::{Block0, Block1, Block2, Block3, Block4, Block5, Block6, Block7};
+use super::{
+    Block0, Block1, Block2, Block3, Block4, Block5, Block6, Block7, Rotation,
+};
 
 pub fn encode_bc7(image: RgbaImage) -> Vec<u8> {
     let (width, height) = image.dimensions();
@@ -33,9 +35,21 @@ pub fn encode_bc7(image: RgbaImage) -> Vec<u8> {
     res
 }
 
+// TODO: partial blocks (don't use all pixels in 4x4, on bottom/right edges)
+// could be encoded separately as they don't care about oob pixels
 pub fn encode_bc7_block(pixels: [[Rgba<u8>; 4]; 4]) -> u128 {
-    if pixels == [[Rgba([0; 4]); 4]; 4] {
-        return 0x00000000_aaaaaaac_00000000_00000020_u128;
+    let all_transparent = pixels.iter().flatten().all(|x| x.0[3] == 0);
+    if all_transparent {
+        return Block5 {
+            rot: Rotation::No,
+            r: [0; 2],
+            g: [0; 2],
+            b: [0; 2],
+            a: [0; 2],
+            color_index_data: 0,
+            alpha_index_data: 0,
+        }
+        .encode();
     }
     let uses_transparency = pixels.iter().flatten().any(|x| x.0[3] != 255);
     if uses_transparency {
