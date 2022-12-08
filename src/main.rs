@@ -13,7 +13,7 @@ use byteorder::{ReadBytesExt, LE};
 use clap::Parser;
 use dds::create_dds_header;
 
-pub fn align_up<const ALIGN: u32>(v: u32) -> u32 {
+pub const fn align_up<const ALIGN: u32>(v: u32) -> u32 {
     ((v + ALIGN - 1) / ALIGN) * ALIGN
 }
 
