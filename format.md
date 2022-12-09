@@ -8,6 +8,9 @@
 | toc_offset +  8 |  4 | size_decompressed | decompressed size |
 | toc_offset + 12 |  4 | size | size of compressed data in bigblob |
 | toc_offset + 16 | 24 | unks | unknown, sound files always have 0s, for images maybe xy coords for something? |
+| toc_offset + 16 |  8 | original_canvas_size? | |
+| toc_offset + 24 |  8 | original_canvas_offset? | |
+| toc_offset + 32 |  8 | original_canvas_crop_size? | |
 | toc_offset + 40 |  4 | width | width of an image, 0 for sound files |
 | toc_offset + 44 |  4 | height | height of an image, 0 for sound files |
 | toc_offset + 48 |  4 | offset | offset in bigblob |
