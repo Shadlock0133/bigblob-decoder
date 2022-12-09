@@ -194,7 +194,7 @@ fn main() {
 
 fn print_toc(toc: &Toc) {
     for entry in &toc.entries {
-        print!(
+        println!(
             "{} ({:?}) ({} bytes @ {:#x}; {} decompressed)",
             entry.name,
             entry.file_type,
@@ -203,13 +203,15 @@ fn print_toc(toc: &Toc) {
             entry.size_decompressed
         );
         if entry.file_type == FileType::Image {
-            println!(":");
-            println!("dimensions: {}x{}", entry.width, entry.height);
-            for unk in entry.unks {
-                print!("({}, {}), ", unk.0, unk.1);
+            println!("    dimensions: {}x{}", entry.width, entry.height);
+            for (i, (x, y)) in entry.unks.iter().enumerate() {
+                if (i, *x, *y) == (2, entry.width, entry.height) {
+                    println!("    unk{i}: <same as dimensions>");
+                } else {
+                    println!("    unk{i}: {x}x{y}");
+                }
             }
         }
-        println!();
     }
 }
 
