@@ -3,7 +3,7 @@ use std::{
     ops::{BitAnd, BitOrAssign, Shl, ShlAssign, Sub},
 };
 
-use image::{Rgba, RgbaImage};
+use image::{imageops::FilterType, Rgba, RgbaImage};
 
 use crate::align_up;
 
@@ -11,15 +11,39 @@ use super::{
     Block0, Block1, Block2, Block3, Block4, Block5, Block6, Block7, Rotation,
 };
 
+// TODO: mipmaps
 pub fn encode_bc7(image: RgbaImage) -> Vec<u8> {
-    let (width, height) = image.dimensions();
+    let (mut width, mut height) = image.dimensions();
     let awidth = align_up::<4>(width);
     let aheight = align_up::<4>(height);
     let block_count = awidth * aheight / 16;
+
+    let mut res =
+        Vec::with_capacity(block_count as usize * size_of::<u128>() * 2);
+    encode_image(&image, &mut res);
+    loop {
+        width = (width / 2).max(1);
+        height = (height / 2).max(1);
+        let mipmap = image::imageops::resize(
+            &image,
+            width,
+            height,
+            FilterType::CatmullRom,
+        );
+        encode_image(&mipmap, &mut res);
+        if (width, height) == (1, 1) {
+            break;
+        }
+    }
+    res
+}
+
+fn encode_image(image: &RgbaImage, res: &mut Vec<u8>) {
+    let (width, height) = image.dimensions();
+    let awidth = align_up::<4>(width);
+    let aheight = align_up::<4>(height);
     let pos_iter = (0..aheight / 4)
         .flat_map(|y| (0..awidth / 4).map(move |x| (4 * x, 4 * y)));
-
-    let mut res = Vec::with_capacity(block_count as usize * size_of::<u128>());
     for (x, y) in pos_iter {
         let mut pixels = [[Rgba([0; 4]); 4]; 4];
         for dy in 0..4 {
@@ -32,7 +56,6 @@ pub fn encode_bc7(image: RgbaImage) -> Vec<u8> {
         let block = encode_bc7_block(pixels);
         res.extend_from_slice(&block.to_le_bytes());
     }
-    res
 }
 
 // TODO: partial blocks (don't use all pixels in 4x4, on bottom/right edges)
