@@ -11,7 +11,6 @@ use super::{
     Block0, Block1, Block2, Block3, Block4, Block5, Block6, Block7, Rotation,
 };
 
-// TODO: mipmaps
 pub fn encode_bc7(image: RgbaImage) -> Vec<u8> {
     let (mut width, mut height) = image.dimensions();
     let awidth = align_up::<4>(width);
