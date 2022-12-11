@@ -31,6 +31,7 @@ version = "0.1.0"
 dependencies = [
  "byteorder",
  "clap",
+ "compressonator_bc7",
  "image",
  "lz4_flex",
 ]
@@ -101,6 +102,10 @@ name = "color_quant"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
+
+[[package]]
+name = "compressonator_bc7"
+version = "0.1.0"
 
 [[package]]
 name = "crc32fast"

@@ -24,15 +24,19 @@ pub fn create_dds_header(width: u32, height: u32) -> DdsHeader {
     }
 }
 
+pub fn parse_dds(_data: &[u8]) -> Result<(DdsHeader, &[u8]), ()> {
+    todo!()
+}
+
 /// https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dds-header
 pub struct DdsHeader {
-    height: u32,
-    width: u32,
-    pitch_or_linear_size: u32,
-    depth: u32,
-    mipmap_count: u32,
-    pixel_format: PixelFormat,
-    dx10_header: Option<Dx10Header>,
+    pub height: u32,
+    pub width: u32,
+    pub pitch_or_linear_size: u32,
+    pub depth: u32,
+    pub mipmap_count: u32,
+    pub pixel_format: PixelFormat,
+    pub dx10_header: Option<Dx10Header>,
 }
 impl DdsHeader {
     pub fn write<W: Write>(&self, mut w: W) -> io::Result<()> {
@@ -77,7 +81,7 @@ impl DdsHeader {
     }
 }
 
-struct PixelFormat;
+pub struct PixelFormat;
 impl PixelFormat {
     fn write<W: Write>(&self, mut w: W) -> io::Result<()> {
         // struct size
@@ -102,14 +106,14 @@ impl PixelFormat {
 
 #[repr(u32)]
 #[derive(Clone, Copy)]
-enum ResourceDimension {
+pub enum ResourceDimension {
     Texture1D = 2,
     Texture2D = 3,
     Texture3D = 4,
 }
 #[repr(u32)]
 #[derive(Clone, Copy)]
-enum AlphaMode {
+pub enum AlphaMode {
     Unknown = 0,
     Straight = 1,
     Premultiplied = 2,
@@ -117,9 +121,9 @@ enum AlphaMode {
     Custom = 4,
 }
 
-struct Dx10Header {
-    resource_dimension: ResourceDimension,
-    alpha_mode: AlphaMode,
+pub struct Dx10Header {
+    pub resource_dimension: ResourceDimension,
+    pub alpha_mode: AlphaMode,
 }
 impl Dx10Header {
     fn write<W: Write>(&self, mut w: W) -> io::Result<()> {

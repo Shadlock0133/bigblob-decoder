@@ -5,6 +5,8 @@ use image::Rgba;
 
 pub use decode::decode_bc7;
 pub use encode::encode_bc7;
+#[cfg(feature = "compressonator")]
+pub use encode::encode_bc7_compressonator;
 
 struct Block0 {
     partition: u8,

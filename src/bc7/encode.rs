@@ -12,6 +12,34 @@ use super::{
 };
 
 pub fn encode_bc7(image: RgbaImage) -> Vec<u8> {
+    encode_bc7_with_encoder(image, encode_bc7_block)
+}
+
+#[cfg(feature = "compressonator")]
+pub fn encode_bc7_compressonator(image: RgbaImage) -> Vec<u8> {
+    encode_bc7_with_encoder(image, encode_bc7_block_compressonator)
+}
+
+#[cfg(feature = "compressonator")]
+fn encode_bc7_block_compressonator(pixels: [[Rgba<u8>; 4]; 4]) -> u128 {
+    let mut output = [0u8; 16];
+    let res = unsafe {
+        compressonator_bc7::CompressBlockBC7(
+            pixels.as_ptr().cast(),
+            16,
+            &mut output,
+            core::ptr::null(),
+        )
+    };
+    if res != 0 {
+        panic!("compressonator error: {}", res);
+    }
+    u128::from_le_bytes(output)
+}
+
+type BlockEncoder = fn([[Rgba<u8>; 4]; 4]) -> u128;
+
+fn encode_bc7_with_encoder(image: RgbaImage, encoder: BlockEncoder) -> Vec<u8> {
     let (mut width, mut height) = image.dimensions();
     let awidth = align_up::<4>(width);
     let aheight = align_up::<4>(height);
@@ -19,7 +47,7 @@ pub fn encode_bc7(image: RgbaImage) -> Vec<u8> {
 
     let mut res =
         Vec::with_capacity(block_count as usize * size_of::<u128>() * 2);
-    encode_image(&image, &mut res);
+    encode_image(&image, encoder, &mut res);
     loop {
         width = (width / 2).max(1);
         height = (height / 2).max(1);
@@ -29,7 +57,7 @@ pub fn encode_bc7(image: RgbaImage) -> Vec<u8> {
             height,
             FilterType::CatmullRom,
         );
-        encode_image(&mipmap, &mut res);
+        encode_image(&mipmap, encoder, &mut res);
         if (width, height) == (1, 1) {
             break;
         }
@@ -37,7 +65,7 @@ pub fn encode_bc7(image: RgbaImage) -> Vec<u8> {
     res
 }
 
-fn encode_image(image: &RgbaImage, res: &mut Vec<u8>) {
+fn encode_image(image: &RgbaImage, encoder: BlockEncoder, res: &mut Vec<u8>) {
     let (width, height) = image.dimensions();
     let awidth = align_up::<4>(width);
     let aheight = align_up::<4>(height);
@@ -52,7 +80,7 @@ fn encode_image(image: &RgbaImage, res: &mut Vec<u8>) {
                 }
             }
         }
-        let block = encode_bc7_block(pixels);
+        let block = encoder(pixels);
         res.extend_from_slice(&block.to_le_bytes());
     }
 }

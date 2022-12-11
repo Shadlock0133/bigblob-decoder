@@ -5,14 +5,16 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(feature = "compressonator")]
+use bigblob_decoder::bc7::encode_bc7_compressonator;
 use bigblob_decoder::{
     bc7::encode_bc7,
-    dds::create_dds_header,
+    dds::{create_dds_header, parse_dds},
     dump_content, dump_entry,
-    encoding::{Archive, Data},
+    encoding::{self, Archive, Data},
     read_toc, FileType, Format, Toc,
 };
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use image::ImageFormat;
 
 #[derive(Parser)]
@@ -39,11 +41,21 @@ struct DumpFile {
     entry_name: String,
 }
 
+#[derive(Clone, ValueEnum)]
+enum Compressor {
+    Internal,
+    #[cfg(feature = "compressonator")]
+    Compressonator,
+}
+
 #[derive(Parser)]
 struct ReplaceEntry {
     /// Location of "assets.bigblob" file
     assets_input: Option<PathBuf>,
-    assets_output: PathBuf,
+    assets_output: Option<PathBuf>,
+    #[clap(long)]
+    /// BC7 compressor for images
+    compressor: Option<Compressor>,
     entry_name: String,
     file: PathBuf,
 }
@@ -137,11 +149,12 @@ fn extract_file(opts: DumpFile) {
 }
 
 fn replace_entry(opts: ReplaceEntry) {
-    let filename = opts
+    let assets_input_path = opts
         .assets_input
         .as_deref()
         .unwrap_or(Path::new("assets.bigblob"));
-    let mut assets_input = File::open(filename).unwrap();
+
+    let mut assets_input = File::open(assets_input_path).unwrap();
     let toc = read_toc(&mut assets_input).unwrap();
     let mut archive = Archive::from_file_and_toc(&assets_input, toc).unwrap();
     let entry = archive
@@ -150,15 +163,64 @@ fn replace_entry(opts: ReplaceEntry) {
         .find(|e| e.name == opts.entry_name)
         .unwrap();
     let mut data = fs::read(&opts.file).unwrap();
+
+    #[allow(unreachable_code)]
     if opts.file.extension() == Some(OsStr::new("png")) {
+        // panic!("png format is currently unsupported, use some other program to \
+        //     compress it into dds file with bc7 format texture");
+        let encoding::FileType::Image { width, height, .. } =
+            &mut entry.file_type
+        else {
+            panic!("expected png file to replace \"Image\" file type entry")
+        };
         let image =
             image::load_from_memory_with_format(&data, ImageFormat::Png)
                 .unwrap()
                 .into_rgba8();
-        data = encode_bc7(image);
+        (*width, *height) = image.dimensions();
+
+        let compressor = if let Some(c) = opts.compressor {
+            c
+        } else {
+            if cfg!(feature = "compressor") {
+                panic!("missing compressor flag");
+            } else {
+                Compressor::Internal
+            }
+        };
+
+        match compressor {
+            Compressor::Internal => {
+                eprintln!(
+                    "Warning! internal compressor is currently WIP and \
+                    only supports simple debug output"
+                );
+                data = encode_bc7(image);
+            }
+            #[cfg(feature = "compressonator")]
+            Compressor::Compressonator => {
+                data = encode_bc7_compressonator(image);
+            }
+        }
+    } else if opts.file.extension() == Some(OsStr::new("dds")) {
+        if let Ok((header, rest)) = parse_dds(&data) {
+            eprintln!("detected dds header, removing it");
+            let encoding::FileType::Image { width, height, .. } =
+                &mut entry.file_type
+            else {
+                panic!("expected dds file to replace \"Image\" file type entry")
+            };
+            *width = header.width;
+            *height = header.height;
+            data = rest.to_vec();
+        }
     }
+
     entry.data = Data::Raw(data);
-    let assets_output = File::create(opts.assets_output).unwrap();
+    drop(assets_input); // close the file
+
+    let output = opts.assets_output.as_deref().unwrap_or(assets_input_path);
+    let assets_output = File::create(output).unwrap();
     archive.write_to_file(assets_output).unwrap();
 }
 
