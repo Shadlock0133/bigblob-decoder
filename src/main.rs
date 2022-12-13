@@ -164,7 +164,6 @@ fn replace_entry(opts: ReplaceEntry) {
         .unwrap();
     let mut data = fs::read(&opts.file).unwrap();
 
-    #[allow(unreachable_code)]
     if opts.file.extension() == Some(OsStr::new("png")) {
         // panic!("png format is currently unsupported, use some other program to \
         //     compress it into dds file with bc7 format texture");
