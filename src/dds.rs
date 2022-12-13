@@ -1,22 +1,23 @@
 use std::{
-    io::{self, Write},
+    io::{self, Cursor, Read, Write},
     mem::size_of,
 };
 
-use byteorder::{WriteBytesExt, LE};
+use byteorder::{ReadBytesExt, WriteBytesExt, LE};
 
 use crate::align_up;
 
 pub fn create_dds_header(width: u32, height: u32) -> DdsHeader {
-    let mipmap_count =
-        (32 - width.leading_zeros()).max(32 - height.leading_zeros());
+    let mipmap_count = calculate_mipmap_count(width, height);
     DdsHeader {
         height,
         width,
         pitch_or_linear_size: align_up::<4>(width) * align_up::<4>(height),
         depth: 0,
         mipmap_count,
-        pixel_format: PixelFormat,
+        pixel_format: PixelFormat {
+            four_cc: FourCC::DX10,
+        },
         dx10_header: Some(Dx10Header {
             resource_dimension: ResourceDimension::Texture2D,
             alpha_mode: AlphaMode::Straight,
@@ -24,26 +25,89 @@ pub fn create_dds_header(width: u32, height: u32) -> DdsHeader {
     }
 }
 
-pub fn parse_dds(_data: &[u8]) -> Result<(DdsHeader, &[u8]), ()> {
-    todo!()
+pub fn calculate_mipmap_count(width: u32, height: u32) -> u32 {
+    (32 - width.leading_zeros()).max(32 - height.leading_zeros())
+}
+
+pub fn parse_dds(data: &[u8]) -> Result<(DdsHeader, &[u8]), ParseError> {
+    let mut cursor = Cursor::new(data);
+    let header = DdsHeader::parse(&mut cursor)?;
+    let offset = cursor.position() as usize;
+    Ok((header, &data[offset..]))
+}
+
+#[derive(Debug)]
+pub enum ParseError {
+    Io(io::Error),
+    WrongDDSMagic,
+    WrongDDSHeaderSize,
+    WrongPixelFormatSize,
+    UnknownFourCC,
+    UnknownFormat,
+    UnknownResourceDimension,
+    UnknownAlphaMode,
+}
+
+impl From<io::Error> for ParseError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
 }
 
 /// https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dds-header
 pub struct DdsHeader {
     pub height: u32,
     pub width: u32,
-    pub pitch_or_linear_size: u32,
-    pub depth: u32,
+    pitch_or_linear_size: u32,
+    depth: u32,
     pub mipmap_count: u32,
-    pub pixel_format: PixelFormat,
-    pub dx10_header: Option<Dx10Header>,
+    pixel_format: PixelFormat,
+    dx10_header: Option<Dx10Header>,
 }
 impl DdsHeader {
+    const MAGIC: [u8; 4] = *b"DDS ";
+    const SIZE: usize = 124;
+
+    fn parse<R: Read>(mut r: R) -> Result<Self, ParseError> {
+        if r.read_u32::<LE>()?.to_le_bytes() != Self::MAGIC {
+            return Err(ParseError::WrongDDSMagic);
+        }
+        if r.read_u32::<LE>()? != Self::SIZE as u32 {
+            return Err(ParseError::WrongDDSHeaderSize);
+        }
+        let _flags = r.read_u32::<LE>()?;
+        let height = r.read_u32::<LE>()?;
+        let width = r.read_u32::<LE>()?;
+        let pitch_or_linear_size = r.read_u32::<LE>()?;
+        let depth = r.read_u32::<LE>()?;
+        let mipmap_count = r.read_u32::<LE>()?;
+        // reserved1
+        for _ in 0..11 {
+            let _ = r.read_u32::<LE>()?;
+        }
+        let pixel_format = PixelFormat::parse(&mut r)?;
+        // caps and reserved2
+        for _ in 0..5 {
+            let _ = r.read_u32::<LE>()?;
+        }
+        let dx10_header = matches!(pixel_format.four_cc, FourCC::DX10)
+            .then(|| Dx10Header::parse(&mut r))
+            .transpose()?;
+        Ok(Self {
+            height,
+            width,
+            pitch_or_linear_size,
+            depth,
+            mipmap_count,
+            pixel_format,
+            dx10_header,
+        })
+    }
+
     pub fn write<W: Write>(&self, mut w: W) -> io::Result<()> {
-        let magic = b"DDS ";
-        w.write_all(magic)?;
+        w.write_all(&Self::MAGIC)?;
         // struct size
-        w.write_u32::<LE>(124)?;
+        w.write_u32::<LE>(Self::SIZE as u32)?;
         // flags
         let flags = 0x1 // DDSD_CAPS (required)
             | 0x2 // DDSD_HEIGHT (required)
@@ -81,14 +145,45 @@ impl DdsHeader {
     }
 }
 
-pub struct PixelFormat;
+enum FourCC {
+    DX10,
+}
+impl FourCC {
+    const DX10_BYTES: [u8; 4] = *b"DX10";
+}
+
+struct PixelFormat {
+    four_cc: FourCC,
+}
 impl PixelFormat {
+    const SIZE: usize = 8 * size_of::<u32>();
+
+    fn parse<R: Read>(mut r: R) -> Result<Self, ParseError> {
+        let size = r.read_u32::<LE>()?;
+        if size != Self::SIZE as u32 {
+            return Err(ParseError::WrongPixelFormatSize);
+        }
+        let _flags = r.read_u32::<LE>()?;
+        let four_cc = match r.read_u32::<LE>()?.to_le_bytes() {
+            FourCC::DX10_BYTES => FourCC::DX10,
+            _ => return Err(ParseError::UnknownFourCC),
+        };
+        let _rgb_count = r.read_u32::<LE>()?;
+        let _r_mask = r.read_u32::<LE>()?;
+        let _g_mask = r.read_u32::<LE>()?;
+        let _b_mask = r.read_u32::<LE>()?;
+        let _a_mask = r.read_u32::<LE>()?;
+        Ok(Self { four_cc })
+    }
+
     fn write<W: Write>(&self, mut w: W) -> io::Result<()> {
         // struct size
-        w.write_u32::<LE>(8 * size_of::<u32>() as u32)?;
+        w.write_u32::<LE>(Self::SIZE as u32)?;
         let flags = 0x4; // DDPF_FOURCC
         w.write_u32::<LE>(flags)?;
-        let four_cc = b"DX10";
+        let four_cc = match self.four_cc {
+            FourCC::DX10 => b"DX10",
+        };
         w.write_all(four_cc)?;
         // rgb bit count
         w.write_u32::<LE>(0)?;
@@ -106,14 +201,14 @@ impl PixelFormat {
 
 #[repr(u32)]
 #[derive(Clone, Copy)]
-pub enum ResourceDimension {
+enum ResourceDimension {
     Texture1D = 2,
     Texture2D = 3,
     Texture3D = 4,
 }
 #[repr(u32)]
 #[derive(Clone, Copy)]
-pub enum AlphaMode {
+enum AlphaMode {
     Unknown = 0,
     Straight = 1,
     Premultiplied = 2,
@@ -121,14 +216,42 @@ pub enum AlphaMode {
     Custom = 4,
 }
 
-pub struct Dx10Header {
-    pub resource_dimension: ResourceDimension,
-    pub alpha_mode: AlphaMode,
+struct Dx10Header {
+    resource_dimension: ResourceDimension,
+    alpha_mode: AlphaMode,
 }
 impl Dx10Header {
+    const DXGI_FORMAT_BC7_UNORM: u32 = 98;
+
+    fn parse<R: Read>(mut r: R) -> Result<Self, ParseError> {
+        let format = r.read_u32::<LE>()?;
+        if format != Self::DXGI_FORMAT_BC7_UNORM {
+            return Err(ParseError::UnknownFormat);
+        }
+        let resource_dimension = match r.read_u32::<LE>()? {
+            2 => ResourceDimension::Texture1D,
+            3 => ResourceDimension::Texture2D,
+            4 => ResourceDimension::Texture3D,
+            _ => return Err(ParseError::UnknownResourceDimension),
+        };
+        let _misc = r.read_u32::<LE>()?;
+        let _array_size = r.read_u32::<LE>()?;
+        let alpha_mode = match r.read_u32::<LE>()? {
+            0 => AlphaMode::Unknown,
+            1 => AlphaMode::Straight,
+            2 => AlphaMode::Premultiplied,
+            3 => AlphaMode::Opaque,
+            4 => AlphaMode::Custom,
+            _ => return Err(ParseError::UnknownAlphaMode),
+        };
+        Ok(Self {
+            resource_dimension,
+            alpha_mode,
+        })
+    }
+
     fn write<W: Write>(&self, mut w: W) -> io::Result<()> {
-        let format = 98; // DXGI_FORMAT_BC7_UNORM
-        w.write_u32::<LE>(format)?;
+        w.write_u32::<LE>(Self::DXGI_FORMAT_BC7_UNORM)?;
         w.write_u32::<LE>(self.resource_dimension as u32)?;
         // misc flag
         w.write_u32::<LE>(0)?;

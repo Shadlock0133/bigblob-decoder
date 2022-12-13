@@ -9,7 +9,7 @@ use std::{
 use bigblob_decoder::bc7::encode_bc7_compressonator;
 use bigblob_decoder::{
     bc7::encode_bc7,
-    dds::{create_dds_header, parse_dds},
+    dds::{calculate_mipmap_count, create_dds_header, parse_dds},
     dump_content, dump_entry,
     encoding::{self, Archive, Data},
     read_toc, FileType, Format, Toc,
@@ -203,16 +203,31 @@ fn replace_entry(opts: ReplaceEntry) {
             }
         }
     } else if opts.file.extension() == Some(OsStr::new("dds")) {
-        if let Ok((header, rest)) = parse_dds(&data) {
-            eprintln!("detected dds header, removing it");
-            let encoding::FileType::Image { width, height, .. } =
-                &mut entry.file_type
-            else {
-                panic!("expected dds file to replace \"Image\" file type entry")
-            };
-            *width = header.width;
-            *height = header.height;
-            data = rest.to_vec();
+        match parse_dds(&data) {
+            Ok((header, rest)) => {
+                eprintln!("detected dds header, removing it");
+                if header.mipmap_count
+                    != calculate_mipmap_count(header.width, header.height)
+                {
+                    eprintln!(
+                        "Warning! amount of mipmaps must be such that the \
+                        smallest mipmap has size 1x1, otherwise the game will \
+                        crash"
+                    )
+                }
+                let encoding::FileType::Image { width, height, .. } =
+                    &mut entry.file_type
+                else {
+                    panic!("expected dds file to replace \"Image\" file type entry")
+                };
+                *width = header.width;
+                *height = header.height;
+                data = rest.to_vec();
+            }
+            Err(e) => {
+                eprintln!("failed parsing dds header: {e:?}");
+                eprintln!("falling back to putting whole file");
+            }
         }
     }
 
