@@ -41,7 +41,7 @@ struct DumpFile {
     entry_name: String,
 }
 
-#[derive(Clone, ValueEnum)]
+#[derive(Clone, Copy, ValueEnum)]
 enum Compressor {
     Internal,
     #[cfg(feature = "compressonator")]
@@ -61,6 +61,17 @@ struct ReplaceEntry {
 }
 
 #[derive(Parser)]
+struct ReplaceEntries {
+    /// Location of "assets.bigblob" file
+    assets_input: Option<PathBuf>,
+    assets_output: Option<PathBuf>,
+    #[clap(long)]
+    /// BC7 compressor for images
+    compressor: Option<Compressor>,
+    folder: PathBuf,
+}
+
+#[derive(Parser)]
 struct TestEncodeBc7 {
     input_image: PathBuf,
     output: PathBuf,
@@ -72,6 +83,7 @@ enum Opt {
     ExtractAll(DumpContent),
     ExtractFile(DumpFile),
     ReplaceEntry(ReplaceEntry),
+    ReplaceEntries(ReplaceEntries),
     TestEncodeBc7(TestEncodeBc7),
 }
 
@@ -82,6 +94,7 @@ fn main() {
         Opt::ExtractAll(opt) => extract_all(opt),
         Opt::ExtractFile(opt) => extract_file(opt),
         Opt::ReplaceEntry(opt) => replace_entry(opt),
+        Opt::ReplaceEntries(opt) => replace_entries(opt),
         Opt::TestEncodeBc7(opt) => test_encode_bc7(opt),
     }
 }
@@ -142,8 +155,7 @@ fn extract_file(opts: DumpFile) {
     let mut file = File::open(filename).unwrap();
     let toc = read_toc(&mut file).unwrap();
     let Some(entry) = toc.entries.into_iter().find(|e| e.name == opts.entry_name) else {
-        eprintln!("Couldn't find file inside assets: {}", opts.entry_name);
-        return;
+        panic!("Couldn't find file inside assets: {}", opts.entry_name);
     };
     dump_entry(&mut file, entry, format).unwrap();
 }
@@ -157,16 +169,96 @@ fn replace_entry(opts: ReplaceEntry) {
     let mut assets_input = File::open(assets_input_path).unwrap();
     let toc = read_toc(&mut assets_input).unwrap();
     let mut archive = Archive::from_file_and_toc(&assets_input, toc).unwrap();
+    drop(assets_input); // close the file
+
+    replace_one_entry(
+        &mut archive,
+        opts.entry_name,
+        opts.file,
+        opts.compressor,
+    );
+
+    let output = opts.assets_output.as_deref().unwrap_or(assets_input_path);
+    let assets_output = File::create(output).unwrap();
+    archive.write_to_file(assets_output).unwrap();
+}
+
+fn replace_entries(opts: ReplaceEntries) {
+    let assets_input_path = opts
+        .assets_input
+        .as_deref()
+        .unwrap_or(Path::new("assets.bigblob"));
+
+    let mut assets_input = File::open(assets_input_path).unwrap();
+    let toc = read_toc(&mut assets_input).unwrap();
+    let mut archive = Archive::from_file_and_toc(&assets_input, toc).unwrap();
+    drop(assets_input); // close the file
+
+    let root = opts.folder.clone();
+
+    replace_entries_in_dir_rec(
+        &mut archive,
+        &root,
+        opts.folder,
+        opts.compressor,
+    )
+    .unwrap();
+
+    let output = opts.assets_output.as_deref().unwrap_or(assets_input_path);
+    let assets_output = File::create(output).unwrap();
+    archive.write_to_file(assets_output).unwrap();
+}
+
+fn replace_entries_in_dir_rec(
+    archive: &mut Archive,
+    root: &Path,
+    path: PathBuf,
+    compressor: Option<Compressor>,
+) -> std::io::Result<()> {
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_file() {
+            let entry_path = entry.path();
+            let entry_path = entry_path.strip_prefix(root).unwrap();
+            let entry_name = entry_path
+                .components()
+                .map(|c| c.as_os_str().to_str())
+                .collect::<Option<Vec<_>>>()
+                .unwrap()
+                .join("/");
+            println!("replacing {}", entry_name);
+            replace_one_entry(
+                archive,
+                entry_name,
+                entry.path(),
+                compressor,
+            );
+        } else if file_type.is_dir() {
+            replace_entries_in_dir_rec(
+                archive,
+                root,
+                entry.path(),
+                compressor,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn replace_one_entry(
+    archive: &mut Archive,
+    entry_name: String,
+    file: PathBuf,
+    compressor: Option<Compressor>,
+) {
     let entry = archive
         .entries
         .iter_mut()
-        .find(|e| e.name == opts.entry_name)
+        .find(|e| e.name == entry_name)
         .unwrap();
-    let mut data = fs::read(&opts.file).unwrap();
-
-    if opts.file.extension() == Some(OsStr::new("png")) {
-        // panic!("png format is currently unsupported, use some other program to \
-        //     compress it into dds file with bc7 format texture");
+    let mut data = fs::read(&file).unwrap();
+    if file.extension() == Some(OsStr::new("png")) {
         let encoding::FileType::Image { width, height, .. } =
             &mut entry.file_type
         else {
@@ -178,7 +270,7 @@ fn replace_entry(opts: ReplaceEntry) {
                 .into_rgba8();
         (*width, *height) = image.dimensions();
 
-        let compressor = if let Some(c) = opts.compressor {
+        let compressor = if let Some(c) = compressor {
             c
         } else {
             if cfg!(feature = "compressor") {
@@ -201,7 +293,7 @@ fn replace_entry(opts: ReplaceEntry) {
                 data = encode_bc7_compressonator(image);
             }
         }
-    } else if opts.file.extension() == Some(OsStr::new("dds")) {
+    } else if file.extension() == Some(OsStr::new("dds")) {
         match parse_dds(&data) {
             Ok((header, rest)) => {
                 eprintln!("detected dds header, removing it");
@@ -229,13 +321,7 @@ fn replace_entry(opts: ReplaceEntry) {
             }
         }
     }
-
     entry.data = Data::Raw(data);
-    drop(assets_input); // close the file
-
-    let output = opts.assets_output.as_deref().unwrap_or(assets_input_path);
-    let assets_output = File::create(output).unwrap();
-    archive.write_to_file(assets_output).unwrap();
 }
 
 fn test_encode_bc7(opts: TestEncodeBc7) {
