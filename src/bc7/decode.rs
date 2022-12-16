@@ -67,9 +67,9 @@ pub fn decode_bc7_block(block: u128) -> Option<[[Rgba<u8>; 4]; 4]> {
                 let [rgb @ .., _] = &mut rgba.0;
                 let subset = PARTITIONS_3[partition][i];
                 let index = if anchors.contains(&i) {
-                    take_bits::<_, usize, 1>(&mut index_data)
-                } else {
                     take_bits::<_, usize, 2>(&mut index_data)
+                } else {
+                    take_bits::<_, usize, 3>(&mut index_data)
                 };
                 *rgb = subsets[subset][index].0;
             }
@@ -138,13 +138,13 @@ pub fn decode_bc7_block(block: u128) -> Option<[[Rgba<u8>; 4]; 4]> {
         3 => {
             let data = Block3::decode(block);
 
-            let subsets: [[Rgb<u8>; 8]; 2] = from_fn(|sub| {
+            let subsets: [[Rgb<u8>; 4]; 2] = from_fn(|sub| {
                 let e: [_; 2] = from_fn(|i| {
                     let index = 2 * sub + i;
                     Rgb([data.r[index], data.g[index], data.b[index]])
                         .map(|x| (x << 1) | data.p[index])
                 });
-                from_fn(|i| e[0].map2(&e[1], |a, b| interpolate::<3>(a, b, i)))
+                from_fn(|i| e[0].map2(&e[1], |a, b| interpolate::<2>(a, b, i)))
             });
 
             let mut ret = [[Rgba([0, 0, 0, 255]); 4]; 4];
