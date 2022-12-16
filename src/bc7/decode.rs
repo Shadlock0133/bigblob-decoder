@@ -108,7 +108,7 @@ pub fn decode_bc7_block(block: u128) -> Option<[[Rgba<u8>; 4]; 4]> {
         2 => {
             let data = Block2::decode(block);
 
-            let subsets: [[Rgb<u8>; 4]; 2] = from_fn(|sub| {
+            let subsets: [[Rgb<u8>; 4]; 3] = from_fn(|sub| {
                 let e: [_; 2] = from_fn(|i| {
                     let index = 2 * sub + i;
                     Rgb([data.r[index], data.g[index], data.b[index]])
@@ -138,7 +138,7 @@ pub fn decode_bc7_block(block: u128) -> Option<[[Rgba<u8>; 4]; 4]> {
         3 => {
             let data = Block3::decode(block);
 
-            let subsets: [[Rgb<u8>; 8]; 3] = from_fn(|sub| {
+            let subsets: [[Rgb<u8>; 8]; 2] = from_fn(|sub| {
                 let e: [_; 2] = from_fn(|i| {
                     let index = 2 * sub + i;
                     Rgb([data.r[index], data.g[index], data.b[index]])
