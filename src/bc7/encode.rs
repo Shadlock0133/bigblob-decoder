@@ -4,6 +4,7 @@ use std::{
 };
 
 use image::{imageops::FilterType, Rgba, RgbaImage};
+use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 
 use crate::align_up;
 
@@ -46,8 +47,8 @@ fn encode_bc7_with_encoder(image: RgbaImage, encoder: BlockEncoder) -> Vec<u8> {
     let block_count = awidth * aheight / 16;
 
     let mut res =
-        Vec::with_capacity(block_count as usize * size_of::<u128>() * 2);
-    encode_image(&image, encoder, &mut res);
+        Vec::with_capacity(block_count as usize * size_of::<u128>() * 3 / 2);
+    res.extend(encode_image_par(&image, encoder));
     loop {
         width = (width / 2).max(1);
         height = (height / 2).max(1);
@@ -57,7 +58,7 @@ fn encode_bc7_with_encoder(image: RgbaImage, encoder: BlockEncoder) -> Vec<u8> {
             height,
             FilterType::CatmullRom,
         );
-        encode_image(&mipmap, encoder, &mut res);
+        res.extend(encode_image_par(&mipmap, encoder));
         if (width, height) == (1, 1) {
             break;
         }
@@ -65,24 +66,29 @@ fn encode_bc7_with_encoder(image: RgbaImage, encoder: BlockEncoder) -> Vec<u8> {
     res
 }
 
-fn encode_image(image: &RgbaImage, encoder: BlockEncoder, res: &mut Vec<u8>) {
+fn encode_image_par(image: &RgbaImage, encoder: BlockEncoder) -> Vec<u8> {
     let (width, height) = image.dimensions();
     let awidth = align_up::<4>(width);
     let aheight = align_up::<4>(height);
-    let pos_iter = (0..aheight / 4)
-        .flat_map(|y| (0..awidth / 4).map(move |x| (4 * x, 4 * y)));
-    for (x, y) in pos_iter {
-        let mut pixels = [[Rgba([0; 4]); 4]; 4];
-        for dy in 0..4 {
-            for dx in 0..4 {
-                if let Some(pixel) = image.get_pixel_checked(x + dx, y + dy) {
-                    pixels[dy as usize][dx as usize] = *pixel;
+    (0..aheight / 4)
+        .into_par_iter()
+        .flat_map(|y| {
+            (0..awidth / 4).into_par_iter().map(move |x| (4 * x, 4 * y))
+        })
+        .flat_map(|(x, y)| {
+            let mut pixels = [[Rgba([0; 4]); 4]; 4];
+            for dy in 0..4 {
+                for dx in 0..4 {
+                    if let Some(pixel) = image.get_pixel_checked(x + dx, y + dy)
+                    {
+                        pixels[dy as usize][dx as usize] = *pixel;
+                    }
                 }
             }
-        }
-        let block = encoder(pixels);
-        res.extend_from_slice(&block.to_le_bytes());
-    }
+            let block = encoder(pixels);
+            block.to_le_bytes()
+        })
+        .collect()
 }
 
 // TODO: partial blocks (don't use all pixels in 4x4, on bottom/right edges)
