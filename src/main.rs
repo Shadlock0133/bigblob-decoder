@@ -11,11 +11,13 @@ use bigblob_decoder::{
     bc7::encode_bc7,
     dds::{calculate_mipmap_count, create_dds_header, parse_dds},
     dump_content, dump_entry,
-    encoding::{self, Archive, Data},
+    encoding::{self, Archive, Data, Entry},
     read_toc, FileType, Format, Toc,
 };
 use clap::{Parser, ValueEnum};
 use image::ImageFormat;
+use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+use serde::Deserialize;
 
 #[derive(Parser)]
 struct ListContent {
@@ -72,11 +74,20 @@ struct ReplaceEntries {
 }
 
 #[derive(Parser)]
+struct TestSetMetadata {
+    /// Location of "assets.bigblob" file
+    assets_input: Option<PathBuf>,
+    assets_output: Option<PathBuf>,
+    instructions: PathBuf,
+}
+
+#[derive(Parser)]
 struct TestEncodeBc7 {
     input_image: PathBuf,
     output: PathBuf,
 }
 
+// TODO: make_archive
 #[derive(Parser)]
 enum Opt {
     ListContent(ListContent),
@@ -84,6 +95,7 @@ enum Opt {
     ExtractFile(DumpFile),
     ReplaceEntry(ReplaceEntry),
     ReplaceEntries(ReplaceEntries),
+    TestSetMetadata(TestSetMetadata),
     TestEncodeBc7(TestEncodeBc7),
 }
 
@@ -95,6 +107,7 @@ fn main() {
         Opt::ExtractFile(opt) => extract_file(opt),
         Opt::ReplaceEntry(opt) => replace_entry(opt),
         Opt::ReplaceEntries(opt) => replace_entries(opt),
+        Opt::TestSetMetadata(opt) => test_set_metadata(opt),
         Opt::TestEncodeBc7(opt) => test_encode_bc7(opt),
     }
 }
@@ -171,12 +184,12 @@ fn replace_entry(opts: ReplaceEntry) {
     let mut archive = Archive::from_file_and_toc(&assets_input, toc).unwrap();
     drop(assets_input); // close the file
 
-    replace_one_entry(
-        &mut archive,
-        opts.entry_name,
-        opts.file,
-        opts.compressor,
-    );
+    let entry = archive
+        .entries
+        .iter_mut()
+        .find(|e| e.name == opts.entry_name)
+        .unwrap();
+    replace_one_entry(entry, opts.file, opts.compressor);
 
     let output = opts.assets_output.as_deref().unwrap_or(assets_input_path);
     let assets_output = File::create(output).unwrap();
@@ -196,30 +209,39 @@ fn replace_entries(opts: ReplaceEntries) {
 
     let root = opts.folder.clone();
 
-    replace_entries_in_dir_rec(
-        &mut archive,
-        &root,
-        opts.folder,
-        opts.compressor,
-    )
-    .unwrap();
+    let mut entries = archive.entries.iter_mut().collect::<Vec<_>>();
+    let mut tasks = vec![];
+
+    replace_entries_in_dir_rec(&mut entries, &mut tasks, &root, opts.folder)
+        .unwrap();
+
+    tasks.into_par_iter().for_each(|task| {
+        println!("replacing {}", task.entry_name);
+        replace_one_entry(task.entry, task.path, opts.compressor);
+    });
 
     let output = opts.assets_output.as_deref().unwrap_or(assets_input_path);
     let assets_output = File::create(output).unwrap();
     archive.write_to_file(assets_output).unwrap();
 }
 
-fn replace_entries_in_dir_rec(
-    archive: &mut Archive,
+struct Task<'a> {
+    entry: &'a mut Entry,
+    entry_name: String,
+    path: PathBuf,
+}
+
+fn replace_entries_in_dir_rec<'a>(
+    entries: &mut Vec<&'a mut Entry>,
+    tasks: &mut Vec<Task<'a>>,
     root: &Path,
     path: PathBuf,
-    compressor: Option<Compressor>,
 ) -> std::io::Result<()> {
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
+    for dir_entry in fs::read_dir(path)? {
+        let dir_entry = dir_entry?;
+        let file_type = dir_entry.file_type()?;
         if file_type.is_file() {
-            let entry_path = entry.path();
+            let entry_path = dir_entry.path();
             let entry_path = entry_path.strip_prefix(root).unwrap();
             let entry_name = entry_path
                 .components()
@@ -227,36 +249,26 @@ fn replace_entries_in_dir_rec(
                 .collect::<Option<Vec<_>>>()
                 .unwrap()
                 .join("/");
-            println!("replacing {}", entry_name);
-            replace_one_entry(
-                archive,
+            let pos =
+                entries.iter().position(|e| e.name == entry_name).unwrap();
+            let entry = entries.remove(pos);
+            tasks.push(Task {
+                entry,
                 entry_name,
-                entry.path(),
-                compressor,
-            );
+                path: dir_entry.path(),
+            });
         } else if file_type.is_dir() {
-            replace_entries_in_dir_rec(
-                archive,
-                root,
-                entry.path(),
-                compressor,
-            )?;
+            replace_entries_in_dir_rec(entries, tasks, root, dir_entry.path())?;
         }
     }
     Ok(())
 }
 
 fn replace_one_entry(
-    archive: &mut Archive,
-    entry_name: String,
+    entry: &mut Entry,
     file: PathBuf,
     compressor: Option<Compressor>,
 ) {
-    let entry = archive
-        .entries
-        .iter_mut()
-        .find(|e| e.name == entry_name)
-        .unwrap();
     let mut data = fs::read(&file).unwrap();
     if file.extension() == Some(OsStr::new("png")) {
         let encoding::FileType::Image { width, height, .. } =
@@ -322,6 +334,62 @@ fn replace_one_entry(
         }
     }
     entry.data = Data::Raw(data);
+}
+
+#[derive(Deserialize, Debug)]
+struct Instruction {
+    entry_name: String,
+    offset_x: Option<u32>,
+    offset_y: Option<u32>,
+    double_offset: Option<bool>,
+}
+
+fn test_set_metadata(opts: TestSetMetadata) {
+    let assets_input_path = opts
+        .assets_input
+        .as_deref()
+        .unwrap_or(Path::new("assets.bigblob"));
+
+    let mut assets_input = File::open(assets_input_path).unwrap();
+    let toc = read_toc(&mut assets_input).unwrap();
+    let mut archive = Archive::from_file_and_toc(&assets_input, toc).unwrap();
+    drop(assets_input); // close the file
+
+    let instructions: Vec<Instruction> =
+        serde_json::from_str(&fs::read_to_string(opts.instructions).unwrap())
+            .unwrap();
+
+    for instruction in instructions {
+        let Some(entry) = archive
+            .entries
+            .iter_mut()
+            .find(|e| e.name == instruction.entry_name)
+        else {
+            eprintln!("Couldn't find entry {:?}", instruction.entry_name);
+            continue;
+        };
+        match &mut entry.file_type {
+            encoding::FileType::Image { unks, .. } => {
+                if let Some(offset_x) = instruction.offset_x {
+                    unks[1].0 = offset_x;
+                }
+                if let Some(offset_y) = instruction.offset_y {
+                    unks[1].1 = offset_y;
+                }
+                if let Some(true) = instruction.double_offset {
+                    unks[1].0 *= 2;
+                    unks[1].1 *= 2;
+                }
+            }
+            _ => {
+                eprintln!("entry {:?} is not an image", instruction.entry_name)
+            }
+        }
+    }
+
+    let output = opts.assets_output.as_deref().unwrap_or(assets_input_path);
+    let assets_output = File::create(output).unwrap();
+    archive.write_to_file(assets_output).unwrap();
 }
 
 fn test_encode_bc7(opts: TestEncodeBc7) {
